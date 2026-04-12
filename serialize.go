@@ -48,23 +48,49 @@ func (d *Document) serialize() (*pdfcore.Writer, error) {
 	return w, w.Err()
 }
 
-// putPages writes page dictionaries and content streams.
+// putPages writes page dictionaries, content streams, and link annotations.
 // Returns the object numbers of each page dictionary.
 func (d *Document) putPages(w *pdfcore.Writer) []int {
 	pageObjNums := make([]int, len(d.pages))
 
+	// Pre-compute page object numbers so internal links can reference
+	// target pages before they are written. Each page uses:
+	//   1 object for the page dict + 1 for the content stream + N for annotations.
+	objNum := 3 // first available after reserved objects 1 and 2
 	for i, p := range d.pages {
-		// Page dictionary
-		pageObj := w.NewObj()
-		pageObjNums[i] = pageObj
-		contentObj := pageObj + 1 // content stream will be the next object
+		pageObjNums[i] = objNum
+		objNum += 2 + len(p.links) // page dict + content + annotations
+	}
 
+	// Build page pointer → object number map for resolving internal link anchors.
+	pageObjMap := make(map[*Page]int, len(d.pages))
+	for i, p := range d.pages {
+		pageObjMap[p] = pageObjNums[i]
+	}
+
+	for i, p := range d.pages {
+		numAnnots := len(p.links)
+		contentObj := pageObjNums[i] + 1
+
+		// Page dictionary
+		w.NewObj()
 		w.Put("<<")
 		w.Put("/Type /Page")
 		w.Putf("/Parent 1 0 R")
 		w.Putf("/MediaBox [0 0 %.2f %.2f]", p.size.WidthPt, p.size.HeightPt)
 		w.Put("/Resources 2 0 R")
 		w.Putf("/Contents %d 0 R", contentObj)
+		if numAnnots > 0 {
+			annots := "/Annots ["
+			for j := 0; j < numAnnots; j++ {
+				if j > 0 {
+					annots += " "
+				}
+				annots += fmt.Sprintf("%d 0 R", contentObj+1+j)
+			}
+			annots += "]"
+			w.Put(annots)
+		}
 		w.Put(">>")
 		w.EndObj()
 
@@ -78,6 +104,38 @@ func (d *Document) putPages(w *pdfcore.Writer) []int {
 			w.PutStream(data)
 		}
 		w.EndObj()
+
+		// Annotation objects
+		k := d.k
+		for _, link := range p.links {
+			w.NewObj()
+
+			// Convert user-unit rect to PDF points (bottom-left origin).
+			x1 := link.x * k
+			y1 := (p.h - (link.y + link.h)) * k // bottom edge
+			x2 := (link.x + link.w) * k
+			y2 := (p.h - link.y) * k // top edge
+
+			w.Put("<<")
+			w.Put("/Type /Annot")
+			w.Put("/Subtype /Link")
+			w.Putf("/Rect [%.2f %.2f %.2f %.2f]", x1, y1, x2, y2)
+			w.Put("/Border [0 0 0]")
+
+			if link.url != "" {
+				w.Putf("/A <</S /URI /URI %s>>", pdfString(link.url))
+			} else if link.anchor != "" {
+				if dest, ok := d.anchors[link.anchor]; ok {
+					if targetObj, ok := pageObjMap[dest.page]; ok {
+						destY := (dest.page.h - dest.y) * k
+						w.Putf("/Dest [%d 0 R /XYZ 0 %.2f 0]", targetObj, destY)
+					}
+				}
+			}
+
+			w.Put(">>")
+			w.EndObj()
+		}
 	}
 
 	// Pages root at object 1

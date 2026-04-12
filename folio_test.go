@@ -1453,3 +1453,194 @@ func TestTableNoBorder(t *testing.T) {
 		t.Error("invalid PDF")
 	}
 }
+
+// --- Link tests ---
+
+func TestLinkURL(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.TextAt(20, 30, "Click here")
+	page.LinkURL(20, 25, 50, 10, "https://example.com")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "/Subtype /Link") {
+		t.Error("missing /Subtype /Link annotation")
+	}
+	if !strings.Contains(s, "/S /URI") {
+		t.Error("missing URI action")
+	}
+	if !strings.Contains(s, "https://example.com") {
+		t.Error("missing URL in annotation")
+	}
+	if !strings.Contains(s, "/Annots") {
+		t.Error("missing /Annots array in page dict")
+	}
+	if !strings.Contains(s, "/Border [0 0 0]") {
+		t.Error("missing /Border [0 0 0] (no visible border)")
+	}
+}
+
+func TestLinkAnchorInternal(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	page1 := doc.AddPage(A4)
+	page1.TextAt(20, 30, "Go to chapter 2")
+	page1.LinkAnchor(20, 25, 80, 10, "chapter2")
+
+	page2 := doc.AddPage(A4)
+	page2.AddAnchor("chapter2")
+	page2.TextAt(20, 30, "Chapter 2 starts here")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "/Subtype /Link") {
+		t.Error("missing /Subtype /Link annotation")
+	}
+	if !strings.Contains(s, "/Dest") {
+		t.Error("missing /Dest for internal link")
+	}
+	if !strings.Contains(s, "/XYZ") {
+		t.Error("missing /XYZ destination type")
+	}
+}
+
+func TestLinkMultipleOnPage(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.TextAt(20, 30, "Link 1")
+	page.LinkURL(20, 25, 40, 10, "https://one.example.com")
+
+	page.TextAt(20, 50, "Link 2")
+	page.LinkURL(20, 45, 40, 10, "https://two.example.com")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Two link annotations on the same page.
+	count := strings.Count(s, "/Subtype /Link")
+	if count != 2 {
+		t.Errorf("expected 2 link annotations, got %d", count)
+	}
+	if !strings.Contains(s, "https://one.example.com") {
+		t.Error("missing first URL")
+	}
+	if !strings.Contains(s, "https://two.example.com") {
+		t.Error("missing second URL")
+	}
+}
+
+func TestLinkNoAnnotsWhenNoLinks(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	page.TextAt(20, 30, "No links here")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if strings.Contains(s, "/Annots") {
+		t.Error("/Annots should not appear when page has no links")
+	}
+}
+
+func TestLinkRectCoordinates(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// Place a link at known coordinates.
+	page.LinkURL(10, 20, 50, 10, "https://example.com")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// k = 72/25.4 ≈ 2.8346
+	// A4 height in mm ≈ 297.0 (841.89 pt / k)
+	// x1 = 10 * k ≈ 28.35
+	// y1 = (297 - 30) * k ≈ 756.85 (bottom edge: y + h = 20 + 10 = 30)
+	// x2 = 60 * k ≈ 170.08
+	// y2 = (297 - 20) * k ≈ 785.20 (top edge: y = 20)
+	if !strings.Contains(s, "/Rect [") {
+		t.Error("missing /Rect in annotation")
+	}
+}
+
+func TestLinkURLEscaping(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// URL with parentheses that need escaping in PDF strings.
+	page.LinkURL(10, 10, 50, 10, "https://example.com/path?q=a(b)")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// The parentheses in the URL should be escaped.
+	if !strings.Contains(s, `\(b\)`) {
+		t.Error("URL parentheses should be escaped in PDF string")
+	}
+}
+
+func TestLinkWithAutoPageBreak(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetAutoPageBreak(true, 15)
+
+	page := doc.AddPage(A4)
+
+	// Fill page 1 with cells.
+	for i := 0; i < 28; i++ {
+		page.Cell(0, 10, fmt.Sprintf("Line %d", i+1), "", "L", false, 1)
+	}
+
+	// After auto break, page should forward to page 2.
+	// Adding a link should go on page 2 via the forwarding pointer.
+	page.LinkURL(10, page.GetY(), 50, 10, "https://page2.example.com")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if doc.PageCount() != 2 {
+		t.Errorf("expected 2 pages, got %d", doc.PageCount())
+	}
+	if !strings.Contains(s, "https://page2.example.com") {
+		t.Error("missing link URL on page 2")
+	}
+}

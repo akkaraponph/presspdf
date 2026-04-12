@@ -58,6 +58,9 @@ type Document struct {
 	// respects word boundaries.
 	wordBreaker WordBreakFunc
 
+	// link anchors (named destinations for internal links)
+	anchors map[string]anchorDest
+
 	// header/footer callbacks
 	headerFunc     func(*Page)
 	footerFunc     func(*Page)
@@ -67,6 +70,12 @@ type Document struct {
 
 	// error accumulation
 	err error
+}
+
+// anchorDest stores the target location for an internal link destination.
+type anchorDest struct {
+	page *Page   // the page containing the anchor
+	y    float64 // Y position in user units
 }
 
 // WordBreakFunc segments a paragraph (a line containing no '\n') into
@@ -100,6 +109,7 @@ func New(opts ...Option) *Document {
 		cMargin:  2,
 		fonts:    resources.NewFontRegistry(),
 		images:   resources.NewImageRegistry(),
+		anchors:  make(map[string]anchorDest),
 		lineWidth: 0.2,
 	}
 	for _, opt := range opts {

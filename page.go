@@ -29,6 +29,16 @@ type Page struct {
 	// break occurs, the old page's next points to the new page so that
 	// stale *Page references transparently follow to the active page.
 	next *Page
+
+	// links holds hyperlink annotations for this page.
+	links []linkAnnotation
+}
+
+// linkAnnotation represents a hyperlink annotation on a page.
+type linkAnnotation struct {
+	x, y, w, h float64 // rect in user units
+	url         string  // non-empty for URL links
+	anchor      string  // non-empty for internal links
 }
 
 // --- Page break support ---
@@ -699,6 +709,31 @@ func (p *Page) GetX() float64 { return p.active().x }
 
 // GetY returns the current Y cursor position.
 func (p *Page) GetY() float64 { return p.active().y }
+
+// --- Links ---
+
+// LinkURL creates a URL hyperlink annotation covering the rectangle
+// (x, y, w, h) in user units. Clicking this region in a PDF viewer
+// opens the given URL.
+func (p *Page) LinkURL(x, y, w, h float64, url string) {
+	p = p.active()
+	p.links = append(p.links, linkAnnotation{x: x, y: y, w: w, h: h, url: url})
+}
+
+// LinkAnchor creates an internal link annotation covering the rectangle
+// (x, y, w, h) in user units. Clicking this region navigates to the
+// named anchor set by AddAnchor.
+func (p *Page) LinkAnchor(x, y, w, h float64, anchor string) {
+	p = p.active()
+	p.links = append(p.links, linkAnnotation{x: x, y: y, w: w, h: h, anchor: anchor})
+}
+
+// AddAnchor registers the current cursor position as a named destination.
+// Use LinkAnchor on any page to create a clickable link that navigates here.
+func (p *Page) AddAnchor(name string) {
+	p = p.active()
+	p.doc.anchors[name] = anchorDest{page: p, y: p.y}
+}
 
 // --- Internal ---
 
