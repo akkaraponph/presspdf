@@ -8,6 +8,7 @@ import (
 	crand "crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -15,7 +16,6 @@ import (
 	"image/png"
 	"math/big"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -6075,12 +6075,8 @@ func TestICCProfileStructure(t *testing.T) {
 // --- PDF-to-Image Conversion Tests ---
 
 func hasRenderer() bool {
-	for _, name := range []string{"pdftoppm", "mutool", "gs"} {
-		if _, err := exec.LookPath(name); err == nil {
-			return true
-		}
-	}
-	return false
+	_, err := FindTool("pdftoppm", "mutool", "gs")
+	return err == nil
 }
 
 func createTestPDF(t *testing.T) string {
@@ -6255,13 +6251,98 @@ func TestConvertPage_WithDPI(t *testing.T) {
 }
 
 func TestConvert_NoRenderer(t *testing.T) {
-	// Test the error type when no renderer — only useful if none installed.
-	// We test findRenderer directly by checking it doesn't panic.
-	_, err := findRenderer()
+	// Test FindTool with names that definitely don't exist.
+	_, err := FindTool("nonexistent-tool-xyz")
+	if err == nil {
+		t.Error("expected error for nonexistent tool")
+	}
+	var tnf *ToolNotFoundError
+	if !errors.As(err, &tnf) {
+		t.Errorf("expected *ToolNotFoundError, got %T: %v", err, err)
+	}
+}
+
+func TestFindTool_FirstAvailable(t *testing.T) {
+	// FindTool should return the first available tool.
+	tool, err := FindTool("nonexistent-xyz", "sh")
 	if err != nil {
-		if err != ErrNoRenderer {
-			t.Errorf("expected ErrNoRenderer, got %v", err)
-		}
+		t.Skipf("sh not on PATH: %v", err)
+	}
+	if tool.Name != "sh" {
+		t.Errorf("expected tool name 'sh', got %q", tool.Name)
+	}
+	if tool.Path == "" {
+		t.Error("expected non-empty path")
+	}
+}
+
+func TestExternalTool_Run(t *testing.T) {
+	tool, err := FindTool("echo")
+	if err != nil {
+		t.Skip("echo not on PATH")
+	}
+	out, err := tool.Run("hello", "world")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "hello world" {
+		t.Errorf("expected 'hello world', got %q", got)
+	}
+}
+
+func TestExternalTool_RunError(t *testing.T) {
+	tool, err := FindTool("false")
+	if err != nil {
+		t.Skip("false not on PATH")
+	}
+	_, err = tool.Run()
+	if err == nil {
+		t.Error("expected error from 'false' command")
+	}
+	var te *ToolError
+	if !errors.As(err, &te) {
+		t.Errorf("expected *ToolError, got %T", err)
+	}
+}
+
+func TestTempDir_CreateAndCleanup(t *testing.T) {
+	dir, cleanup, err := TempDir("folio-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Directory should exist.
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("temp dir should exist: %v", err)
+	}
+	cleanup()
+	// Directory should be removed.
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("temp dir should be removed after cleanup")
+	}
+}
+
+func TestCollectFiles(t *testing.T) {
+	dir := t.TempDir()
+	// Create some files.
+	os.WriteFile(filepath.Join(dir, "page-01.png"), []byte("img"), 0o644)
+	os.WriteFile(filepath.Join(dir, "page-02.png"), []byte("img"), 0o644)
+	os.WriteFile(filepath.Join(dir, "page-01.jpg"), []byte("img"), 0o644)
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("txt"), 0o644)
+
+	pngs, err := CollectFiles(dir, ".png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pngs) != 2 {
+		t.Errorf("expected 2 .png files, got %d", len(pngs))
+	}
+
+	jpgs, err := CollectFiles(dir, ".jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jpgs) != 1 {
+		t.Errorf("expected 1 .jpg file, got %d", len(jpgs))
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -45,6 +44,10 @@ func WithPages(pages ...int) ConvertOption {
 	return func(c *convertConfig) { c.pages = pages }
 }
 
+// ErrNoRenderer is returned when no supported PDF renderer is found on PATH.
+// Deprecated: check for *ToolNotFoundError instead.
+var ErrNoRenderer = fmt.Errorf("folio: no PDF renderer found (install poppler-utils, mupdf-tools, or ghostscript)")
+
 // ConvertToImages converts each page of a PDF file into an image file
 // saved to outputDir. Returns the paths of the generated image files
 // in page order.
@@ -52,15 +55,13 @@ func WithPages(pages ...int) ConvertOption {
 // This function requires an external PDF renderer on PATH. Supported
 // renderers (tried in order): pdftoppm (poppler), mutool (mupdf),
 // gs (Ghostscript).
-//
-// If no renderer is found, it returns ErrNoRenderer.
 func ConvertToImages(pdfPath, outputDir string, opts ...ConvertOption) ([]string, error) {
 	cfg := &convertConfig{dpi: 150, format: PNG}
 	for _, o := range opts {
 		o(cfg)
 	}
 
-	renderer, err := findRenderer()
+	backend, err := findConvertBackend()
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +70,7 @@ func ConvertToImages(pdfPath, outputDir string, opts ...ConvertOption) ([]string
 		return nil, fmt.Errorf("folio: create output dir: %w", err)
 	}
 
-	return renderer.convert(pdfPath, outputDir, cfg)
+	return backend.convert(pdfPath, outputDir, cfg)
 }
 
 // ConvertPage converts a single page of a PDF to an in-memory image.
@@ -83,18 +84,18 @@ func ConvertPage(pdfPath string, page int, opts ...ConvertOption) (image.Image, 
 	}
 	cfg.pages = []int{page}
 
-	renderer, err := findRenderer()
+	backend, err := findConvertBackend()
 	if err != nil {
 		return nil, err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "folio-convert-*")
+	tmpDir, cleanup, err := TempDir("folio-convert-*")
 	if err != nil {
-		return nil, fmt.Errorf("folio: create temp dir: %w", err)
+		return nil, err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer cleanup()
 
-	paths, err := renderer.convert(pdfPath, tmpDir, cfg)
+	paths, err := backend.convert(pdfPath, tmpDir, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -116,33 +117,33 @@ func ConvertPage(pdfPath string, page int, opts ...ConvertOption) (image.Image, 
 	}
 }
 
-// ErrNoRenderer is returned when no supported PDF renderer is found on PATH.
-var ErrNoRenderer = fmt.Errorf("folio: no PDF renderer found (install poppler-utils, mupdf-tools, or ghostscript)")
-
-// pdfRenderer abstracts the external rendering tool.
-type pdfRenderer interface {
+// convertBackend abstracts the external rendering tool.
+type convertBackend interface {
 	convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error)
 }
 
-// findRenderer returns the first available renderer.
-func findRenderer() (pdfRenderer, error) {
-	if p, err := exec.LookPath("pdftoppm"); err == nil {
-		return &pdftoppmRenderer{bin: p}, nil
+// findConvertBackend returns the first available renderer.
+func findConvertBackend() (convertBackend, error) {
+	tool, err := FindTool("pdftoppm", "mutool", "gs")
+	if err != nil {
+		return nil, ErrNoRenderer
 	}
-	if p, err := exec.LookPath("mutool"); err == nil {
-		return &mutoolRenderer{bin: p}, nil
-	}
-	if p, err := exec.LookPath("gs"); err == nil {
-		return &gsRenderer{bin: p}, nil
+	switch tool.Name {
+	case "pdftoppm":
+		return &pdftoppmBackend{tool: tool}, nil
+	case "mutool":
+		return &mutoolBackend{tool: tool}, nil
+	case "gs":
+		return &gsBackend{tool: tool}, nil
 	}
 	return nil, ErrNoRenderer
 }
 
 // --- pdftoppm (poppler-utils) ---
 
-type pdftoppmRenderer struct{ bin string }
+type pdftoppmBackend struct{ tool *ExternalTool }
 
-func (r *pdftoppmRenderer) convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error) {
+func (b *pdftoppmBackend) convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error) {
 	base := filepath.Join(outputDir, "page")
 	args := []string{"-r", strconv.Itoa(cfg.dpi)}
 
@@ -160,19 +161,18 @@ func (r *pdftoppmRenderer) convert(pdfPath, outputDir string, cfg *convertConfig
 
 	args = append(args, pdfPath, base)
 
-	cmd := exec.Command(r.bin, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("folio: pdftoppm: %w: %s", err, out)
+	if _, err := b.tool.Run(args...); err != nil {
+		return nil, err
 	}
 
-	return collectOutputFiles(outputDir, cfg.format, cfg.pages)
+	return collectConvertOutput(outputDir, cfg.format)
 }
 
 // --- mutool (mupdf) ---
 
-type mutoolRenderer struct{ bin string }
+type mutoolBackend struct{ tool *ExternalTool }
 
-func (r *mutoolRenderer) convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error) {
+func (b *mutoolBackend) convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error) {
 	ext := "png"
 	if cfg.format == JPEG {
 		ext = "jpeg"
@@ -187,19 +187,18 @@ func (r *mutoolRenderer) convert(pdfPath, outputDir string, cfg *convertConfig) 
 		args = append(args, pdfPath)
 	}
 
-	cmd := exec.Command(r.bin, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("folio: mutool: %w: %s", err, out)
+	if _, err := b.tool.Run(args...); err != nil {
+		return nil, err
 	}
 
-	return collectOutputFiles(outputDir, cfg.format, cfg.pages)
+	return collectConvertOutput(outputDir, cfg.format)
 }
 
 // --- gs (Ghostscript) ---
 
-type gsRenderer struct{ bin string }
+type gsBackend struct{ tool *ExternalTool }
 
-func (r *gsRenderer) convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error) {
+func (b *gsBackend) convert(pdfPath, outputDir string, cfg *convertConfig) ([]string, error) {
 	device := "png16m"
 	ext := "png"
 	if cfg.format == JPEG {
@@ -222,12 +221,11 @@ func (r *gsRenderer) convert(pdfPath, outputDir string, cfg *convertConfig) ([]s
 
 	args = append(args, pdfPath)
 
-	cmd := exec.Command(r.bin, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("folio: gs: %w: %s", err, out)
+	if _, err := b.tool.Run(args...); err != nil {
+		return nil, err
 	}
 
-	return collectOutputFiles(outputDir, cfg.format, cfg.pages)
+	return collectConvertOutput(outputDir, cfg.format)
 }
 
 // --- helpers ---
@@ -255,25 +253,23 @@ func pageList(pages []int) string {
 	return strings.Join(ss, ",")
 }
 
-// collectOutputFiles gathers the image files generated in outputDir,
-// sorted by name. If specific pages were requested, only matching
-// files are returned.
-func collectOutputFiles(dir string, format ImageFormat, _ []int) ([]string, error) {
+// collectConvertOutput gathers the rendered image files from outputDir.
+func collectConvertOutput(dir string, format ImageFormat) ([]string, error) {
 	ext := ".png"
 	if format == JPEG {
 		ext = ".jpeg"
 	}
 
-	entries, err := os.ReadDir(dir)
+	paths, err := CollectFiles(dir, ext)
 	if err != nil {
-		return nil, fmt.Errorf("folio: read output dir: %w", err)
+		return nil, err
 	}
 
-	var paths []string
-	for _, e := range entries {
-		name := e.Name()
-		if strings.HasSuffix(name, ext) || (format == JPEG && strings.HasSuffix(name, ".jpg")) {
-			paths = append(paths, filepath.Join(dir, name))
+	// Also check .jpg for JPEG (some tools use this extension).
+	if format == JPEG && len(paths) == 0 {
+		paths, err = CollectFiles(dir, ".jpg")
+		if err != nil {
+			return nil, err
 		}
 	}
 
