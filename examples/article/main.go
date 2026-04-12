@@ -6,7 +6,7 @@ import (
 
 	"github.com/akkaraponph/folio"
 	"github.com/akkaraponph/folio/fonts/sarabun"
-	"github.com/veer66/mapkha"
+	"github.com/akkaraponph/folio/thai"
 )
 
 // writer wraps the document + current page and handles page breaks.
@@ -42,17 +42,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Plug in a Thai word segmenter so line-wrapping respects word
-	// boundaries (e.g. "ต้อง", "ใช่") instead of breaking mid-word.
-	dict, err := mapkha.LoadDefaultDict()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error loading thai dict: %v\n", err)
-		os.Exit(1)
-	}
-	wc := mapkha.NewWordcut(dict)
-	doc.SetWordBreaker(func(para string) []string {
-		return wc.Segment(para)
-	})
+	// Plug in the built-in Thai word segmenter so line-wrapping respects
+	// word boundaries (e.g. "ต้อง", "ใช่") instead of breaking mid-word.
+	thai.Setup(doc)
 
 	// A4 is 210mm wide. With left margin 20 and right margin 20 the usable
 	// width is 170; we shave an extra 5mm off the right as visual edge

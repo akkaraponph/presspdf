@@ -2,7 +2,7 @@
 //
 // Demonstrates a realistic single-page A4 business document with:
 //   - Bilingual (Thai/English) labels rendered with the bundled Sarabun font
-//   - mapkha-powered word segmentation for proper Thai line wrapping
+//   - Built-in Thai word segmentation for proper line wrapping
 //   - PNG → JPEG conversion at runtime so an existing PNG asset can be
 //     embedded via folio.Document.RegisterImage (which only accepts JPEG)
 //   - Filled header bar, two-column party block, line-items table with
@@ -24,7 +24,7 @@ import (
 
 	"github.com/akkaraponph/folio"
 	"github.com/akkaraponph/folio/fonts/sarabun"
-	"github.com/veer66/mapkha"
+	"github.com/akkaraponph/folio/thai"
 )
 
 // --- Page geometry (A4, mm) ---
@@ -77,13 +77,8 @@ func main() {
 		fail("register sarabun: %v", err)
 	}
 
-	// Plug in a Thai word segmenter so MultiCell wraps on word boundaries.
-	dict, err := mapkha.LoadDefaultDict()
-	if err != nil {
-		fail("load thai dict: %v", err)
-	}
-	wc := mapkha.NewWordcut(dict)
-	doc.SetWordBreaker(func(p string) []string { return wc.Segment(p) })
+	// Plug in the built-in Thai word segmenter so MultiCell wraps on word boundaries.
+	thai.Setup(doc)
 
 	// Register the company logo. RegisterImage only accepts JPEG, but the
 	// in-repo asset is PNG, so convert it on the fly.
