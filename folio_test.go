@@ -4462,3 +4462,174 @@ func TestColumnLayoutPage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// === Barcode/QR Code (F7) ===
+
+func TestBarcode128Basic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Barcode128(20, 30, 80, 20, "ABC-123")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "f\n") {
+		t.Error("barcode should contain fill operations")
+	}
+	if !strings.Contains(s, "re\n") {
+		t.Error("barcode should contain rect operations")
+	}
+}
+
+func TestBarcode128NumericCodeC(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Barcode128(20, 30, 80, 20, "123456")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "f\n") {
+		t.Error("barcode should contain fill operations")
+	}
+}
+
+func TestBarcode128EmptyData(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Barcode128(20, 30, 80, 20, "")
+
+	_, err := doc.Bytes()
+	if err == nil {
+		t.Fatal("expected error for empty barcode data")
+	}
+}
+
+func TestBarcodeEAN13(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.BarcodeEAN13(20, 30, 60, 20, "590123412345")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "f\n") {
+		t.Error("EAN-13 should contain fill operations")
+	}
+}
+
+func TestBarcodeEAN13With13Digits(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.BarcodeEAN13(20, 30, 60, 20, "5901234123457")
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBarcodeEAN13InvalidDigits(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.BarcodeEAN13(20, 30, 60, 20, "ABC")
+
+	_, err := doc.Bytes()
+	if err == nil {
+		t.Fatal("expected error for non-numeric EAN-13 data")
+	}
+}
+
+func TestQRCodeBasic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.QRCode(20, 30, 50, "Hello World", 0)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	rectCount := strings.Count(s, " re\n")
+	if rectCount < 10 {
+		t.Errorf("QR code should have many rects, got %d", rectCount)
+	}
+}
+
+func TestQRCodeMediumEC(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.QRCode(20, 30, 50, "Test data", 1)
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQRCodeLongData(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	data := strings.Repeat("A", 200)
+	page.QRCode(20, 30, 60, data, 0)
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestQRCodeTooLong(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	data := strings.Repeat("A", 500)
+	page.QRCode(20, 30, 60, data, 0)
+
+	_, err := doc.Bytes()
+	if err == nil {
+		t.Fatal("expected error for data too long")
+	}
+}
+
+func TestQRCodeInvalidEC(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.QRCode(20, 30, 50, "test", 5)
+
+	_, err := doc.Bytes()
+	if err == nil {
+		t.Fatal("expected error for invalid EC level")
+	}
+}
