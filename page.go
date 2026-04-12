@@ -488,6 +488,180 @@ func (p *Page) MultiCell(w, h float64, text, border, align string, fill bool) {
 	p.x = d.lMargin
 }
 
+// Write draws text at the current cursor position with word-wrapping. Unlike
+// Cell, it does not draw a cell box (no border or background). The cursor
+// advances to the right of the drawn text, staying on the same line until
+// a word would overflow the right margin, at which point it wraps.
+//
+// h is the line height used when wrapping to a new line.
+//
+// This method enables mixed-format inline text: call Write, change the font
+// or style, then call Write again to continue on the same line.
+//
+//	page.Write(6, "This is ")
+//	doc.SetFontStyle("B")
+//	page.Write(6, "bold")
+//	doc.SetFontStyle("")
+//	page.Write(6, " and this is normal.")
+func (p *Page) Write(h float64, text string) {
+	p = p.active()
+	d := p.doc
+	if d.err != nil {
+		return
+	}
+
+	fe := p.effectiveFontEntry()
+	if fe == nil {
+		d.err = fmt.Errorf("Write: no font set")
+		return
+	}
+
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	runes := []rune(text)
+	n := len(runes)
+	fontSize := p.effectiveFontSizePt()
+	k := d.k
+
+	// runeW returns the width of a single rune in user units.
+	runeW := func(r rune) float64 {
+		var w int
+		if fe.Type == "TTF" && fe.TTF != nil {
+			ch := int(r)
+			if ch < len(fe.TTF.CharWidths) {
+				w = fe.TTF.CharWidths[ch]
+			}
+		} else if r < 256 {
+			w = fe.Widths[byte(r)]
+		}
+		return float64(w) * fontSize / 1000.0 / k
+	}
+
+	sep := -1  // index of last space in current segment
+	i := 0     // current rune position
+	j := 0     // start of current segment
+	lineW := 0.0 // accumulated width of runes[j..i) in user units
+
+	for i < n {
+		p = p.active()
+		r := runes[i]
+
+		// Explicit newline
+		if r == '\n' {
+			p.writeSegment(string(runes[j:i]), h)
+			p = p.active()
+			p.x = d.lMargin
+			p.y += h
+			p = p.checkPageBreak(h)
+			i++
+			j = i
+			sep = -1
+			lineW = 0
+			continue
+		}
+
+		if r == ' ' {
+			sep = i
+		}
+
+		cw := runeW(r)
+		avail := p.w - d.rMargin - p.x
+
+		if lineW+cw > avail && lineW > 0 {
+			// Line overflow — choose break strategy.
+			if sep >= j {
+				// Break at last space.
+				p.writeSegment(string(runes[j:sep]), h)
+				i = sep + 1
+				j = i
+			} else if p.x > d.lMargin {
+				// No space found but we started mid-line. Wrap to the left
+				// margin where the full line width is available, then
+				// re-measure the segment from scratch.
+				i = j
+			} else {
+				// At left margin, no space — force break before current rune.
+				if i == j {
+					// Single rune wider than line: output it to avoid looping.
+					p.writeSegment(string(runes[j:i+1]), h)
+					i++
+					j = i
+				} else {
+					p.writeSegment(string(runes[j:i]), h)
+					j = i
+				}
+			}
+			// Advance to next line.
+			p = p.active()
+			p.x = d.lMargin
+			p.y += h
+			p = p.checkPageBreak(h)
+			sep = -1
+			lineW = 0
+		} else {
+			lineW += cw
+			i++
+		}
+	}
+
+	// Output remaining segment.
+	if j < n {
+		p = p.active()
+		p.writeSegment(string(runes[j:n]), h)
+	}
+}
+
+// writeSegment draws text at the current cursor position and advances the
+// cursor by the string width. It handles text color, underline, and
+// strikethrough but draws no cell border or background.
+func (p *Page) writeSegment(text string, h float64) {
+	if text == "" {
+		return
+	}
+	p = p.active()
+	d := p.doc
+	k := d.k
+	fontSize := p.effectiveFontSizePt()
+	fontSizeUser := fontSize / k
+	fe := p.effectiveFontEntry()
+	if fe == nil {
+		return
+	}
+
+	sw := p.GetStringWidth(text)
+
+	// Text baseline position: vertically centred in the line height.
+	textX := state.ToPointsX(p.x, k)
+	textY := state.ToPointsY(p.y+0.5*h+0.3*fontSizeUser, p.h, k)
+
+	tc := d.textColor
+	needDeco := d.underline || d.strikethrough
+	needState := !tc.IsBlack() || needDeco
+	if needState {
+		p.stream.SaveState()
+		p.stream.SetFillColorRGB(tc.R, tc.G, tc.B)
+	}
+
+	p.stream.BeginText()
+	p.stream.SetFont("F"+fe.Index, fontSize)
+	p.stream.MoveText(textX, textY)
+	p.emitText(fe, text)
+	p.stream.EndText()
+
+	if d.underline {
+		p.drawTextDecoration(p.x, p.y+0.5*h+0.3*fontSizeUser, text)
+	}
+	if d.strikethrough {
+		p.drawTextDecoration(p.x, p.y+0.5*h-0.1*fontSizeUser, text)
+	}
+
+	if needState {
+		p.stream.RestoreState()
+	}
+
+	// Advance cursor horizontally.
+	p.x += sw
+}
+
 // thaiIsClusterContinuation reports whether r must stay attached to the
 // preceding base character and therefore cannot start a new line. This
 // covers above/below vowels, tone marks, and trailing vowel/iteration marks.

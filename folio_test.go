@@ -1801,3 +1801,212 @@ func TestUnderlineAndStrikethroughTogether(t *testing.T) {
 		t.Errorf("expected at least 2 decoration rects, got %d", rectCount)
 	}
 }
+
+// --- Write() inline text flow tests ---
+
+func TestWriteBasic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Write(6, "Hello ")
+	doc.SetFontStyle("B")
+	page.Write(6, "bold")
+	doc.SetFontStyle("")
+	page.Write(6, " world.")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	for _, text := range []string{"Hello ", "bold", " world."} {
+		if !strings.Contains(s, text) {
+			t.Errorf("missing text: %q", text)
+		}
+	}
+}
+
+func TestWriteCursorAdvances(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	x0 := page.GetX()
+	page.Write(6, "Hello")
+	x1 := page.GetX()
+
+	if x1 <= x0 {
+		t.Errorf("cursor should advance: x0=%f x1=%f", x0, x1)
+	}
+
+	// Write more on the same line — cursor continues.
+	page.Write(6, " World")
+	x2 := page.GetX()
+	if x2 <= x1 {
+		t.Errorf("cursor should continue advancing: x1=%f x2=%f", x1, x2)
+	}
+
+	// Y should not have changed (no wrapping on short text).
+	y := page.GetY()
+	if y != doc.tMargin {
+		t.Errorf("y should still be at top margin (%f), got %f", doc.tMargin, y)
+	}
+}
+
+func TestWriteNewlineHandling(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	y0 := page.GetY()
+	page.Write(6, "Line one\nLine two")
+	y1 := page.GetY()
+
+	if y1 <= y0 {
+		t.Errorf("newline should advance y: y0=%f y1=%f", y0, y1)
+	}
+	// After newline, x should be at left margin.
+	if page.GetX() != doc.lMargin {
+		// Actually, after "Line two", x should be past left margin.
+		// But x was set to lMargin at the newline, then advanced by "Line two" width.
+		if page.GetX() <= doc.lMargin {
+			t.Errorf("x should be past left margin after 'Line two'")
+		}
+	}
+}
+
+func TestWriteWordWrap(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// A4 width = 210mm, margins 10mm each → 190mm available.
+	// Write enough text to force word wrapping.
+	long := strings.Repeat("word ", 60) // ~300 short words
+	y0 := page.GetY()
+	page.Write(6, long)
+	y1 := page.GetY()
+
+	if y1 <= y0 {
+		t.Errorf("wrapping should advance y: y0=%f y1=%f", y0, y1)
+	}
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWriteWithPageBreak(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetAutoPageBreak(true, 15)
+	page := doc.AddPage(A4)
+
+	// Write enough text to overflow to page 2.
+	// A4 available height: 297 - 10 - 15 = 272mm. At 6mm per line, ~45 lines fit.
+	// Each repetition is ~40 chars. At 12pt Helvetica (~2mm/char), ~95 chars/line,
+	// so ~2.4 reps/line. Need ~45 lines → ~108 reps. Use 200 for margin.
+	long := strings.Repeat("Testing page breaks with the Write method works well. ", 200)
+	page.Write(6, long)
+
+	if doc.PageCount() < 2 {
+		t.Errorf("expected at least 2 pages, got %d", doc.PageCount())
+	}
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWriteMixedStyles(t *testing.T) {
+	// The primary use case: rich inline text with mixed formatting.
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Write(6, "This is ")
+	doc.SetFontStyle("B")
+	page.Write(6, "bold")
+	doc.SetFontStyle("I")
+	page.Write(6, " italic")
+	doc.SetFontStyle("")
+	page.Write(6, " and back to normal.")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Should reference multiple font objects (regular, bold, italic).
+	if !strings.Contains(s, "/F1") {
+		t.Error("missing font reference F1")
+	}
+	if !strings.Contains(s, "/F2") {
+		t.Error("missing font reference F2 (bold)")
+	}
+	if !strings.Contains(s, "/F3") {
+		t.Error("missing font reference F3 (italic)")
+	}
+}
+
+func TestWriteUnderline(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Write(6, "Normal ")
+	doc.SetUnderline(true)
+	page.Write(6, "underlined")
+	doc.SetUnderline(false)
+	page.Write(6, " normal again.")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "underlined") {
+		t.Error("missing underlined text")
+	}
+}
+
+func TestWriteEmptyString(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	x0 := page.GetX()
+	page.Write(6, "")
+	x1 := page.GetX()
+
+	if x0 != x1 {
+		t.Errorf("empty Write should not move cursor: x0=%f x1=%f", x0, x1)
+	}
+}
+
+func TestWriteStartMidLine(t *testing.T) {
+	// Start mid-line with Cell, then continue with Write.
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.Cell(40, 6, "Label:", "", "L", false, 0) // cursor moves right by 40mm
+	x0 := page.GetX()
+	page.Write(6, "value text here")
+	x1 := page.GetX()
+
+	if x1 <= x0 {
+		t.Errorf("Write after Cell should continue: x0=%f x1=%f", x0, x1)
+	}
+}
