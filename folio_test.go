@@ -4633,3 +4633,172 @@ func TestQRCodeInvalidEC(t *testing.T) {
 		t.Fatal("expected error for invalid EC level")
 	}
 }
+
+// === AutoTable (F8) ===
+
+func TestAutoTableFromStructs(t *testing.T) {
+	type Item struct {
+		Name  string
+		Price string
+		Qty   int
+	}
+	data := []Item{
+		{"Widget", "9.99", 5},
+		{"Gadget", "24.50", 2},
+	}
+
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	at := AutoTableFromStructs(doc, page, data)
+	at.Render()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	// Headers should appear.
+	if !strings.Contains(s, "(Name)") {
+		t.Error("missing header 'Name'")
+	}
+	if !strings.Contains(s, "(Price)") {
+		t.Error("missing header 'Price'")
+	}
+	if !strings.Contains(s, "(Qty)") {
+		t.Error("missing header 'Qty'")
+	}
+	// Data should appear.
+	if !strings.Contains(s, "(Widget)") {
+		t.Error("missing data 'Widget'")
+	}
+	if !strings.Contains(s, "(Gadget)") {
+		t.Error("missing data 'Gadget'")
+	}
+}
+
+func TestAutoTableFromJSON(t *testing.T) {
+	jsonData := []byte(`[
+		{"id": 1, "name": "Alice", "score": 95},
+		{"id": 2, "name": "Bob", "score": 87}
+	]`)
+
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	at, err := AutoTableFromJSON(doc, page, jsonData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at.Render()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "(Alice)") {
+		t.Error("missing data 'Alice'")
+	}
+	if !strings.Contains(s, "(Bob)") {
+		t.Error("missing data 'Bob'")
+	}
+}
+
+func TestAutoTableInvalidJSON(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	_, err := AutoTableFromJSON(doc, page, []byte("invalid"))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestAutoTableAutoFitWidths(t *testing.T) {
+	type Row struct {
+		Short    string
+		LongName string
+	}
+	data := []Row{
+		{"A", "This is a longer text"},
+		{"B", "Another long text"},
+	}
+
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	at := AutoTableFromStructs(doc, page, data)
+	at.AutoFitWidths(190)
+	at.Render()
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAutoTableEmptySlice(t *testing.T) {
+	type Item struct{ Name string }
+	var data []Item
+
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	at := AutoTableFromStructs(doc, page, data)
+	at.Render()
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAutoTableNotSlice(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	AutoTableFromStructs(doc, page, "not a slice")
+
+	_, err := doc.Bytes()
+	if err == nil {
+		t.Fatal("expected error for non-slice input")
+	}
+}
+
+func TestAutoTableWithStyles(t *testing.T) {
+	type Item struct {
+		Name  string
+		Value string
+	}
+	data := []Item{{"X", "1"}, {"Y", "2"}}
+
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	at := AutoTableFromStructs(doc, page, data)
+	at.SetHeaderStyle(CellStyle{
+		FontFamily: "helvetica",
+		FontStyle:  "B",
+		FontSize:   11,
+		Fill:       true,
+		FillColor:  [3]int{200, 200, 200},
+	})
+	at.SetRowHeight(7)
+	at.SetBorder("1")
+	at.Render()
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
