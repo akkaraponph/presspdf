@@ -87,6 +87,9 @@ type Document struct {
 	inFooter       bool
 	lastPageClosed bool // true after final page footer has been called
 
+	// form fields (AcroForms)
+	formFields []*formField
+
 	// encryption (password protection)
 	encrypted   bool
 	userPw      string

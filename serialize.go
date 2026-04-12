@@ -57,16 +57,19 @@ func (d *Document) serialize() (*pdfcore.Writer, error) {
 	// 10. Resource dictionary at obj 2
 	d.putResourceDict(w)
 
-	// 11. Encrypt dictionary (not encrypted itself)
+	// 11. AcroForm fields
+	fieldObjNums := d.putAcroForm(w, pageObjNums)
+
+	// 12. Encrypt dictionary (not encrypted itself)
 	if d.encrypted {
 		encryptObjNum = d.putEncrypt(w, ownerHash, encKey, fileID)
 	}
 
-	// 12. Info dictionary
+	// 13. Info dictionary
 	infoObjNum := d.putInfo(w)
 
-	// 13. Catalog
-	catalogObjNum := d.putCatalog(w, pageObjNums, outlineRootObj)
+	// 14. Catalog
+	catalogObjNum := d.putCatalog(w, pageObjNums, outlineRootObj, fieldObjNums)
 
 	// 14. Xref
 	xrefOffset := w.WriteXref()
@@ -788,7 +791,7 @@ func (d *Document) putEncrypt(w *pdfcore.Writer, ownerHash [32]byte, encKey, fil
 }
 
 // putCatalog writes the document catalog.
-func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootObj int) int {
+func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootObj int, fieldObjNums []int) int {
 	n := w.NewObj()
 	w.Put("<<")
 	w.Put("/Type /Catalog")
@@ -796,6 +799,14 @@ func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootO
 	if outlineRootObj > 0 {
 		w.Putf("/Outlines %d 0 R", outlineRootObj)
 		w.Put("/PageMode /UseOutlines")
+	}
+	if len(fieldObjNums) > 0 {
+		fields := "/AcroForm << /Fields ["
+		for _, fn := range fieldObjNums {
+			fields += fmt.Sprintf(" %d 0 R", fn)
+		}
+		fields += "] /DA (/Helv 12 Tf 0 g) /DR << /Font << /Helv 2 0 R >> >> >>"
+		w.Put(fields)
 	}
 	w.Put(">>")
 	w.EndObj()

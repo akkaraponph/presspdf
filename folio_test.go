@@ -4943,3 +4943,178 @@ func TestNoEncryptionDefault(t *testing.T) {
 		t.Error("should not have /Encrypt in trailer when not set")
 	}
 }
+
+// === AcroForms (F10) ===
+
+func TestFormTextField(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormTextField("name", 20, 30, 100, 20)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "/Subtype /Widget") {
+		t.Error("missing Widget annotation")
+	}
+	if !strings.Contains(s, "/FT /Tx") {
+		t.Error("missing text field type")
+	}
+	if !strings.Contains(s, "/AcroForm") {
+		t.Error("missing AcroForm in catalog")
+	}
+}
+
+func TestFormTextFieldWithDefault(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormTextField("email", 20, 30, 100, 20,
+		WithDefaultValue("test@example.com"),
+		WithMaxLen(50),
+	)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "/V (test@example.com)") {
+		t.Error("missing default value")
+	}
+	if !strings.Contains(s, "/MaxLen 50") {
+		t.Error("missing MaxLen")
+	}
+}
+
+func TestFormCheckbox(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormCheckbox("agree", 20, 30, 12, true)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "/FT /Btn") {
+		t.Error("missing button field type")
+	}
+	if !strings.Contains(s, "/V /Yes") {
+		t.Error("missing checked value")
+	}
+}
+
+func TestFormCheckboxUnchecked(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormCheckbox("agree", 20, 30, 12, false)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "/V /Off") {
+		t.Error("unchecked checkbox should have /V /Off")
+	}
+}
+
+func TestFormDropdown(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormDropdown("country", 20, 30, 100, 20, []string{"US", "UK", "TH"})
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "/FT /Ch") {
+		t.Error("missing choice field type")
+	}
+	if !strings.Contains(s, "/Opt [") {
+		t.Error("missing options")
+	}
+}
+
+func TestFormMultipleFields(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormTextField("name", 20, 30, 100, 20)
+	page.FormCheckbox("agree", 20, 60, 12, true)
+	page.FormDropdown("role", 20, 80, 100, 20, []string{"Admin", "User"})
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if !strings.Contains(s, "/FT /Tx") {
+		t.Error("missing text field")
+	}
+	if !strings.Contains(s, "/FT /Btn") {
+		t.Error("missing button field")
+	}
+	if !strings.Contains(s, "/FT /Ch") {
+		t.Error("missing choice field")
+	}
+	// Should have 3 fields in AcroForm.
+	if strings.Count(s, "/Subtype /Widget") != 3 {
+		t.Errorf("expected 3 widget annotations, got %d", strings.Count(s, "/Subtype /Widget"))
+	}
+}
+
+func TestFormNoFields(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	if strings.Contains(s, "/AcroForm") {
+		t.Error("should not have AcroForm when no fields exist")
+	}
+}
+
+func TestFormAppearanceStream(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.FormTextField("test", 20, 30, 100, 20)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+
+	// Should have appearance stream (Form XObject for the field).
+	if !strings.Contains(s, "/AP <<") {
+		t.Error("missing appearance dictionary")
+	}
+}
