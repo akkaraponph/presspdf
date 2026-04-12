@@ -10,8 +10,7 @@
 *.out
 *.prof
 
-# Generated PDFs and images
-examples/pdf/
+# Generated images
 examples/pdf2jpg/output/
 
 # Dependency
