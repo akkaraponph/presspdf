@@ -1266,3 +1266,190 @@ func TestPNGDedup(t *testing.T) {
 		t.Errorf("expected 1 image XObject (dedup), got %d", count)
 	}
 }
+
+// --- Table helper tests ---
+
+func TestTableBasic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(30, 100, 50)
+	tbl.SetAligns("C", "L", "R")
+	tbl.SetRowHeight(8)
+
+	tbl.Header("#", "Item", "Price")
+	tbl.Row("1", "Widget", "9.99")
+	tbl.Row("2", "Gadget", "19.99")
+	tbl.Row("3", "Doohickey", "4.50")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	for _, text := range []string{"Widget", "Gadget", "Doohickey", "9.99", "19.99"} {
+		if !strings.Contains(s, text) {
+			t.Errorf("missing table text: %s", text)
+		}
+	}
+}
+
+func TestTableHeaderStyle(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(60, 120)
+	tbl.SetHeaderStyle(CellStyle{
+		FontFamily: "helvetica", FontStyle: "B", FontSize: 11,
+		TextColor: [3]int{255, 255, 255},
+		FillColor: [3]int{0, 0, 128},
+		Fill:      true,
+	})
+	tbl.SetBodyStyle(CellStyle{
+		FontFamily: "helvetica", FontSize: 10,
+		TextColor: [3]int{30, 30, 30},
+	})
+
+	tbl.Header("Name", "Value")
+	tbl.Row("Alpha", "100")
+	tbl.Row("Beta", "200")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "Alpha") || !strings.Contains(s, "Beta") {
+		t.Error("missing table body text")
+	}
+}
+
+func TestTableAlternateRows(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(90, 90)
+	tbl.SetAlternateRows([3]int{240, 240, 240}, [3]int{255, 255, 255})
+
+	tbl.Header("Key", "Value")
+	for i := range 6 {
+		tbl.Row(fmt.Sprintf("key%d", i), fmt.Sprintf("val%d", i))
+	}
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Alternate row fills produce rg color operators.
+	// Even rows: 240/255 ≈ 0.941; odd rows: 1.000.
+	if !strings.Contains(s, "0.941 0.941 0.941 rg") {
+		t.Error("missing even-row fill color")
+	}
+	if !strings.Contains(s, "1.000 1.000 1.000 rg") {
+		t.Error("missing odd-row fill color")
+	}
+}
+
+func TestTableAutoPageBreakWithHeaderRepeat(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	doc.SetAutoPageBreak(true, 15)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(30, 100, 50)
+	tbl.SetAligns("C", "L", "R")
+	tbl.SetRowHeight(10)
+
+	tbl.Header("#", "Description", "Amount")
+
+	// 50 rows × 10mm = 500mm. With A4 (297mm), top margin (10mm),
+	// bottom margin (15mm), header (10mm) — available ≈ 262mm per page.
+	// 26 rows per page → ~2 pages needed.
+	for i := range 50 {
+		tbl.Row(fmt.Sprintf("%d", i+1), "Line item", "100.00")
+	}
+
+	if doc.PageCount() < 2 {
+		t.Errorf("expected at least 2 pages, got %d", doc.PageCount())
+	}
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Header text "Description" should appear more than once (repeated).
+	count := strings.Count(s, "Description")
+	if count < 2 {
+		t.Errorf("expected header repeated on page break, found %d occurrences", count)
+	}
+}
+
+func TestTableNoRepeatHeader(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	doc.SetAutoPageBreak(true, 15)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(90, 90)
+	tbl.SetRowHeight(10)
+	tbl.SetRepeatHeader(false)
+
+	tbl.Header("Col A", "Col B")
+	for i := range 50 {
+		tbl.Row(fmt.Sprintf("a%d", i), fmt.Sprintf("b%d", i))
+	}
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Header should appear exactly once.
+	if strings.Count(s, "Col A") != 1 {
+		t.Errorf("expected header once (no repeat), got %d", strings.Count(s, "Col A"))
+	}
+}
+
+func TestTableNoBorder(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(90, 90)
+	tbl.SetBorder("")
+
+	tbl.Header("A", "B")
+	tbl.Row("1", "2")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No border means no rect stroke in cells.
+	// Just verify it produces valid PDF.
+	s := buf.String()
+	if !strings.HasPrefix(s, "%PDF-1.4") {
+		t.Error("invalid PDF")
+	}
+}
