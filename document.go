@@ -71,6 +71,9 @@ type Document struct {
 	// respects word boundaries.
 	wordBreaker WordBreakFunc
 
+	// bookmarks/outlines
+	outlines []*outlineEntry
+
 	// link anchors (named destinations for internal links)
 	anchors map[string]anchorDest
 
@@ -96,6 +99,14 @@ type alphaEntry struct {
 type anchorDest struct {
 	page *Page   // the page containing the anchor
 	y    float64 // Y position in user units
+}
+
+// outlineEntry represents a bookmark in the PDF outline (navigation sidebar).
+type outlineEntry struct {
+	title string  // display title
+	level int     // nesting level: 0 = top-level, 1 = child, etc.
+	page  *Page   // target page
+	y     float64 // target Y position in user units
 }
 
 // WordBreakFunc segments a paragraph (a line containing no '\n') into
@@ -503,6 +514,22 @@ func GradientStop(pos float64, r, g, b int) gradientStop {
 		g:   float64(g) / 255.0,
 		b:   float64(b) / 255.0,
 	}
+}
+
+// AddBookmark adds a bookmark (PDF outline entry) at the current cursor
+// position of the current page. level controls nesting: 0 = top-level,
+// 1 = child of the most recent level-0 bookmark, and so on.
+// Bookmarks appear in the navigation sidebar of PDF viewers.
+func (d *Document) AddBookmark(title string, level int) {
+	if d.currentPage == nil {
+		return
+	}
+	d.outlines = append(d.outlines, &outlineEntry{
+		title: title,
+		level: level,
+		page:  d.currentPage,
+		y:     d.currentPage.y,
+	})
 }
 
 // SetUnderline enables or disables underlining for subsequent text.

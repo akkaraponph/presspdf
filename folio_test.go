@@ -3397,3 +3397,167 @@ func TestDoubleLandscapeIsPortrait(t *testing.T) {
 		t.Error("double Landscape() should return to portrait")
 	}
 }
+
+// --- Bookmarks/Outlines ---
+
+func TestBookmarkSingle(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	doc.AddBookmark("Chapter 1", 0)
+	page.TextAt(10, 20, "Chapter 1 content")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "/Type /Outlines") {
+		t.Error("expected /Type /Outlines root")
+	}
+	if !strings.Contains(s, "/Title (Chapter 1)") {
+		t.Error("expected bookmark title")
+	}
+	if !strings.Contains(s, "/Outlines") {
+		t.Error("expected /Outlines reference in catalog")
+	}
+	if !strings.Contains(s, "/PageMode /UseOutlines") {
+		t.Error("expected /PageMode /UseOutlines in catalog")
+	}
+}
+
+func TestBookmarkNested(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddBookmark("Chapter 1", 0)
+	doc.AddBookmark("Section 1.1", 1)
+	doc.AddBookmark("Section 1.2", 1)
+	doc.AddBookmark("Chapter 2", 0)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "/Title (Chapter 1)") {
+		t.Error("expected Chapter 1 bookmark")
+	}
+	if !strings.Contains(s, "/Title (Section 1.1)") {
+		t.Error("expected Section 1.1 bookmark")
+	}
+	if !strings.Contains(s, "/Title (Chapter 2)") {
+		t.Error("expected Chapter 2 bookmark")
+	}
+	// Nested items should have /Parent, /First, /Last links.
+	if !strings.Contains(s, "/First") {
+		t.Error("expected /First link in parent bookmark")
+	}
+	if !strings.Contains(s, "/Last") {
+		t.Error("expected /Last link in parent bookmark")
+	}
+}
+
+func TestBookmarkMultiPage(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddBookmark("Page 1", 0)
+	doc.AddPage(A4)
+	doc.AddBookmark("Page 2", 0)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "/Title (Page 1)") {
+		t.Error("expected Page 1 bookmark")
+	}
+	if !strings.Contains(s, "/Title (Page 2)") {
+		t.Error("expected Page 2 bookmark")
+	}
+	// Both should have /Dest entries pointing to different pages.
+	destCount := strings.Count(s, "/Dest [")
+	if destCount != 2 {
+		t.Errorf("expected 2 /Dest entries, got %d", destCount)
+	}
+}
+
+func TestBookmarkDestination(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	page.SetY(50) // move cursor to Y=50mm
+	doc.AddBookmark("At Y=50", 0)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Should have /Dest with /XYZ and a Y coordinate.
+	if !strings.Contains(s, "/XYZ 0") {
+		t.Error("expected /XYZ destination type")
+	}
+}
+
+func TestBookmarkSiblingLinks(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddBookmark("First", 0)
+	doc.AddBookmark("Second", 0)
+	doc.AddBookmark("Third", 0)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Middle item should have both /Prev and /Next.
+	if !strings.Contains(s, "/Prev") {
+		t.Error("expected /Prev link for sibling navigation")
+	}
+	if !strings.Contains(s, "/Next") {
+		t.Error("expected /Next link for sibling navigation")
+	}
+}
+
+func TestBookmarkCount(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddBookmark("Parent", 0)
+	doc.AddBookmark("Child 1", 1)
+	doc.AddBookmark("Child 2", 1)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Outline root count should be 3 (1 parent + 2 children).
+	if !strings.Contains(s, "/Count 3") {
+		t.Error("expected /Count 3 for outline root (1 parent + 2 children)")
+	}
+}
+
+func TestNoBookmarks(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// No bookmarks — should not have outlines or UseOutlines.
+	if strings.Contains(s, "/Type /Outlines") {
+		t.Error("should not have outlines when no bookmarks added")
+	}
+	if strings.Contains(s, "/PageMode /UseOutlines") {
+		t.Error("should not have /PageMode when no bookmarks")
+	}
+}

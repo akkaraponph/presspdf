@@ -35,14 +35,17 @@ func (d *Document) serialize() (*pdfcore.Writer, error) {
 	// 6. Gradients (shading objects and their functions)
 	d.putGradients(w)
 
-	// 7. Resource dictionary at obj 2
+	// 7. Outlines (bookmarks)
+	outlineRootObj := d.putOutlines(w, pageObjNums)
+
+	// 8. Resource dictionary at obj 2
 	d.putResourceDict(w)
 
-	// 8. Info dictionary
+	// 9. Info dictionary
 	infoObjNum := d.putInfo(w)
 
-	// 9. Catalog
-	catalogObjNum := d.putCatalog(w, pageObjNums)
+	// 10. Catalog
+	catalogObjNum := d.putCatalog(w, pageObjNums, outlineRootObj)
 
 	// 10. Xref
 	xrefOffset := w.WriteXref()
@@ -513,6 +516,135 @@ func (d *Document) putGradients(w *pdfcore.Writer) {
 	}
 }
 
+// outlineNode is used during serialization to build the outline tree.
+type outlineNode struct {
+	entry    *outlineEntry
+	objNum   int
+	parent   *outlineNode
+	children []*outlineNode
+}
+
+// putOutlines writes the PDF outline (bookmark) tree.
+// Returns the object number of the outline root, or 0 if no outlines.
+func (d *Document) putOutlines(w *pdfcore.Writer, pageObjNums []int) int {
+	if len(d.outlines) == 0 {
+		return 0
+	}
+
+	// Build page → object number map.
+	pageObjMap := make(map[*Page]int, len(d.pages))
+	for i, p := range d.pages {
+		pageObjMap[p] = pageObjNums[i]
+	}
+
+	// Build tree from flat level-based list.
+	root := &outlineNode{} // virtual root
+	stack := []*outlineNode{root}
+
+	for _, entry := range d.outlines {
+		node := &outlineNode{entry: entry}
+
+		// Pop stack until we find the correct parent level.
+		// Parent's level should be entry.level - 1, or root for level 0.
+		for len(stack) > entry.level+1 {
+			stack = stack[:len(stack)-1]
+		}
+
+		parent := stack[len(stack)-1]
+		node.parent = parent
+		parent.children = append(parent.children, node)
+
+		// Push this node so it can be a parent for deeper levels.
+		if len(stack) == entry.level+1 {
+			stack = append(stack, node)
+		} else {
+			stack[entry.level+1] = node
+		}
+	}
+
+	// Collect all nodes in DFS pre-order for object allocation.
+	var allNodes []*outlineNode
+	var collect func(n *outlineNode)
+	collect = func(n *outlineNode) {
+		if n.entry != nil { // skip virtual root
+			allNodes = append(allNodes, n)
+		}
+		for _, c := range n.children {
+			collect(c)
+		}
+	}
+	collect(root)
+
+	// Allocate object numbers: root + all items.
+	rootObjNum := w.ObjCount() + 1
+	for i, n := range allNodes {
+		n.objNum = rootObjNum + 1 + i
+	}
+	root.objNum = rootObjNum
+
+	// Count visible descendants for a node.
+	var countDesc func(n *outlineNode) int
+	countDesc = func(n *outlineNode) int {
+		c := len(n.children)
+		for _, ch := range n.children {
+			c += countDesc(ch)
+		}
+		return c
+	}
+
+	// Write outline root object.
+	w.NewObj()
+	w.Put("<<")
+	w.Put("/Type /Outlines")
+	if len(root.children) > 0 {
+		w.Putf("/First %d 0 R", root.children[0].objNum)
+		w.Putf("/Last %d 0 R", root.children[len(root.children)-1].objNum)
+		w.Putf("/Count %d", countDesc(root))
+	}
+	w.Put(">>")
+	w.EndObj()
+
+	// Write each outline item.
+	for _, node := range allNodes {
+		w.NewObj()
+		w.Put("<<")
+		w.Putf("/Title %s", pdfString(node.entry.title))
+		w.Putf("/Parent %d 0 R", node.parent.objNum)
+
+		// Destination
+		if pageObj, ok := pageObjMap[node.entry.page]; ok {
+			destY := (node.entry.page.h - node.entry.y) * d.k
+			w.Putf("/Dest [%d 0 R /XYZ 0 %.2f 0]", pageObj, destY)
+		}
+
+		// Sibling links
+		siblings := node.parent.children
+		for idx, sib := range siblings {
+			if sib == node {
+				if idx > 0 {
+					w.Putf("/Prev %d 0 R", siblings[idx-1].objNum)
+				}
+				if idx < len(siblings)-1 {
+					w.Putf("/Next %d 0 R", siblings[idx+1].objNum)
+				}
+				break
+			}
+		}
+
+		// Children
+		if len(node.children) > 0 {
+			w.Putf("/First %d 0 R", node.children[0].objNum)
+			w.Putf("/Last %d 0 R", node.children[len(node.children)-1].objNum)
+			w.Putf("/Count %d", countDesc(node))
+		}
+
+		w.Put(">>")
+		w.EndObj()
+	}
+
+	return rootObjNum
+}
+
 // putResourceDict writes the shared resource dictionary at object 2.
 func (d *Document) putResourceDict(w *pdfcore.Writer) {
 	w.SetOffset(2)
@@ -592,11 +724,15 @@ func (d *Document) putInfo(w *pdfcore.Writer) int {
 }
 
 // putCatalog writes the document catalog.
-func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int) int {
+func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootObj int) int {
 	n := w.NewObj()
 	w.Put("<<")
 	w.Put("/Type /Catalog")
 	w.Put("/Pages 1 0 R")
+	if outlineRootObj > 0 {
+		w.Putf("/Outlines %d 0 R", outlineRootObj)
+		w.Put("/PageMode /UseOutlines")
+	}
 	w.Put(">>")
 	w.EndObj()
 	return n
