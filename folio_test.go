@@ -3561,3 +3561,187 @@ func TestNoBookmarks(t *testing.T) {
 		t.Error("should not have /PageMode when no bookmarks")
 	}
 }
+
+// --- SVG Path Import ---
+
+func TestSVGPathTriangle(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	page.SVGPath(10, 10, 1.0, "M 0 0 L 100 0 L 50 100 Z", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, " m\n") {
+		t.Error("expected m (moveto) operator")
+	}
+	if !strings.Contains(s, " l\n") {
+		t.Error("expected l (lineto) operator")
+	}
+	if !strings.Contains(s, "h\n") {
+		t.Error("expected h (closepath) operator")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("expected S (stroke) operator")
+	}
+}
+
+func TestSVGPathRelative(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	// Relative commands: move to 0,0 then line by +50,+0, +0,+50, close.
+	page.SVGPath(10, 10, 1.0, "m 0 0 l 50 0 l 0 50 z", "F")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, " l\n") {
+		t.Error("expected lineto from relative l commands")
+	}
+	if !strings.Contains(s, "f\n") {
+		t.Error("expected f (fill) operator")
+	}
+}
+
+func TestSVGPathCubicBezier(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	page.SVGPath(10, 10, 1.0, "M 0 0 C 25 50 75 50 100 0", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, " c\n") {
+		t.Error("expected c (curveto) operator for cubic Bézier")
+	}
+}
+
+func TestSVGPathQuadraticBezier(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	// Q command should be promoted to cubic C in PDF.
+	page.SVGPath(10, 10, 1.0, "M 0 0 Q 50 100 100 0", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Should use cubic bezier (c), not quadratic.
+	if !strings.Contains(s, " c\n") {
+		t.Error("expected c (curveto) from promoted quadratic Q command")
+	}
+}
+
+func TestSVGPathHV(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	// H and V are horizontal/vertical line shortcuts.
+	page.SVGPath(10, 10, 1.0, "M 0 0 H 100 V 50 H 0 Z", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Should have 3 lineto operations (H, V, H) + close.
+	lineCount := strings.Count(s, " l\n")
+	if lineCount < 3 {
+		t.Errorf("expected at least 3 lineto from H/V commands, got %d", lineCount)
+	}
+}
+
+func TestSVGPathArc(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	// SVG arc command.
+	page.SVGPath(10, 10, 1.0, "M 0 50 A 50 50 0 1 1 100 50", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Arc should be decomposed into cubic Bézier curves.
+	if !strings.Contains(s, " c\n") {
+		t.Error("expected c operators from arc decomposition")
+	}
+}
+
+func TestSVGPathScale(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	// Scale factor 0.5 — all coordinates should be halved.
+	page.SVGPath(10, 10, 0.5, "M 0 0 L 200 0", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = string(b)
+	// Test that it compiles and produces valid PDF (no assertion on exact coords).
+}
+
+func TestSVGPathFillStroke(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	page.SVGPath(10, 10, 1.0, "M 0 0 L 50 0 L 25 50 Z", "DF")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "B\n") {
+		t.Error("expected B (fill+stroke) operator for DF style")
+	}
+}
+
+func TestSVGPathSmoothCubic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	// S is smooth cubic (reflects previous control point).
+	page.SVGPath(10, 10, 1.0, "M 0 0 C 10 20 40 20 50 0 S 90 -20 100 0", "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Should have 2 cubic curves (C + S).
+	curveCount := strings.Count(s, " c\n")
+	if curveCount < 2 {
+		t.Errorf("expected at least 2 curves from C+S, got %d", curveCount)
+	}
+}
+
+func TestSVGPathEmptyString(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+	page.SVGPath(10, 10, 1.0, "", "D")
+
+	_, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should not crash on empty path.
+}
