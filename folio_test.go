@@ -1644,3 +1644,160 @@ func TestLinkWithAutoPageBreak(t *testing.T) {
 		t.Error("missing link URL on page 2")
 	}
 }
+
+// --- Text decoration tests ---
+
+func TestUnderline(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	doc.SetUnderline(true)
+	page.Cell(0, 10, "Underlined text", "", "L", false, 1)
+	doc.SetUnderline(false)
+	page.Cell(0, 10, "Normal text", "", "L", false, 1)
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Underline draws a filled rect ("re" + "f" operators).
+	// The underlined cell should produce a rect fill for the decoration.
+	// Count "re" occurrences: normal text has no decoration rect.
+	if !strings.Contains(s, "Underlined text") {
+		t.Error("missing underlined text")
+	}
+	if !strings.Contains(s, "Normal text") {
+		t.Error("missing normal text")
+	}
+}
+
+func TestStrikethrough(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	doc.SetStrikethrough(true)
+	page.Cell(0, 10, "Struck text", "", "L", false, 1)
+	doc.SetStrikethrough(false)
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "Struck text") {
+		t.Error("missing strikethrough text")
+	}
+}
+
+func TestUnderlineTextAt(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	doc.SetUnderline(true)
+	page.TextAt(20, 30, "Underlined via TextAt")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "Underlined via TextAt") {
+		t.Error("missing text")
+	}
+	// The underline should produce a rect + fill in the content stream.
+	// "re" for rect, "f" for fill — but we need to check for the
+	// decoration rect specifically. The text color state block (q/Q)
+	// will contain both the text and the decoration rect.
+}
+
+func TestDecorationProducesRect(t *testing.T) {
+	// Verify that underline/strikethrough actually produce rect+fill
+	// operations in the content stream beyond what borders produce.
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// No decoration, no border, no fill — baseline.
+	page.Cell(100, 10, "Plain", "", "L", false, 1)
+
+	var buf1 bytes.Buffer
+	doc.WriteTo(&buf1)
+	plainRects := strings.Count(buf1.String(), " re\n")
+
+	// Now with underline.
+	doc2 := New(WithCompression(false))
+	doc2.SetFont("helvetica", "", 12)
+	page2 := doc2.AddPage(A4)
+	doc2.SetUnderline(true)
+	page2.Cell(100, 10, "Underlined", "", "L", false, 1)
+
+	var buf2 bytes.Buffer
+	doc2.WriteTo(&buf2)
+	underlineRects := strings.Count(buf2.String(), " re\n")
+
+	if underlineRects <= plainRects {
+		t.Errorf("underline should produce more rects: plain=%d underline=%d",
+			plainRects, underlineRects)
+	}
+}
+
+func TestDecorationStateRestore(t *testing.T) {
+	// Decoration state should be saved/restored around header/footer.
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetUnderline(true)
+
+	doc.SetHeaderFunc(func(p *Page) {
+		doc.SetUnderline(false)
+		doc.SetStrikethrough(true)
+		p.Cell(0, 5, "Header", "", "C", false, 1)
+	})
+
+	doc.AddPage(A4)
+
+	// After header, underline should be restored to true, strikethrough to false.
+	if !doc.underline {
+		t.Error("underline should be restored to true after header")
+	}
+	if doc.strikethrough {
+		t.Error("strikethrough should be restored to false after header")
+	}
+}
+
+func TestUnderlineAndStrikethroughTogether(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	doc.SetUnderline(true)
+	doc.SetStrikethrough(true)
+	page.Cell(0, 10, "Both decorations", "", "L", false, 1)
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, "Both decorations") {
+		t.Error("missing text")
+	}
+	// Both decorations produce two rects within the same graphics state.
+	// Count decoration rects: should be 2 (underline + strikethrough).
+	// No border/fill rects since border="" and fill=false.
+	rectCount := strings.Count(s, " re\n")
+	if rectCount < 2 {
+		t.Errorf("expected at least 2 decoration rects, got %d", rectCount)
+	}
+}

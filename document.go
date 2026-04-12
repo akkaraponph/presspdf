@@ -47,10 +47,12 @@ type Document struct {
 	fontEntry  *resources.FontEntry
 
 	// current drawing state (carried across pages)
-	drawColor state.Color
-	fillColor state.Color
-	textColor state.Color
-	lineWidth float64
+	drawColor     state.Color
+	fillColor     state.Color
+	textColor     state.Color
+	lineWidth     float64
+	underline     bool
+	strikethrough bool
 
 	// optional text segmenter used by MultiCell / wrapText. When nil, the
 	// default behaviour splits on ASCII whitespace. Set this to plug in a
@@ -184,26 +186,30 @@ func (d *Document) SetFooterFunc(f func(*Page)) {
 // docState holds a snapshot of the mutable document-level visual state so
 // it can be saved before and restored after header/footer callbacks.
 type docState struct {
-	fontFamily string
-	fontStyle  string
-	fontSizePt float64
-	fontEntry  *resources.FontEntry
-	drawColor  state.Color
-	fillColor  state.Color
-	textColor  state.Color
-	lineWidth  float64
+	fontFamily    string
+	fontStyle     string
+	fontSizePt    float64
+	fontEntry     *resources.FontEntry
+	drawColor     state.Color
+	fillColor     state.Color
+	textColor     state.Color
+	lineWidth     float64
+	underline     bool
+	strikethrough bool
 }
 
 func (d *Document) saveDocState() docState {
 	return docState{
-		fontFamily: d.fontFamily,
-		fontStyle:  d.fontStyle,
-		fontSizePt: d.fontSizePt,
-		fontEntry:  d.fontEntry,
-		drawColor:  d.drawColor,
-		fillColor:  d.fillColor,
-		textColor:  d.textColor,
-		lineWidth:  d.lineWidth,
+		fontFamily:    d.fontFamily,
+		fontStyle:     d.fontStyle,
+		fontSizePt:    d.fontSizePt,
+		fontEntry:     d.fontEntry,
+		drawColor:     d.drawColor,
+		fillColor:     d.fillColor,
+		textColor:     d.textColor,
+		lineWidth:     d.lineWidth,
+		underline:     d.underline,
+		strikethrough: d.strikethrough,
 	}
 }
 
@@ -216,6 +222,8 @@ func (d *Document) restoreDocState(s docState) {
 	d.fillColor = s.fillColor
 	d.textColor = s.textColor
 	d.lineWidth = s.lineWidth
+	d.underline = s.underline
+	d.strikethrough = s.strikethrough
 }
 
 // callHeader invokes the header callback on p, wrapped in a graphics-state
@@ -378,6 +386,12 @@ func (d *Document) SetFillColor(r, g, b int) {
 func (d *Document) SetTextColor(r, g, b int) {
 	d.textColor = state.ColorFromRGB(r, g, b)
 }
+
+// SetUnderline enables or disables underlining for subsequent text.
+func (d *Document) SetUnderline(on bool) { d.underline = on }
+
+// SetStrikethrough enables or disables strikethrough for subsequent text.
+func (d *Document) SetStrikethrough(on bool) { d.strikethrough = on }
 
 // SetLineWidth sets the line width in user units.
 func (d *Document) SetLineWidth(w float64) {

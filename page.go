@@ -102,10 +102,12 @@ func (p *Page) TextAt(x, y float64, text string) {
 	fontSize := p.effectiveFontSizePt() / k
 	yPt := state.ToPointsY(y+0.7*fontSize, p.h, k)
 
-	// Handle text color
-	tc := p.doc.textColor
-	needColor := !tc.IsBlack()
-	if needColor {
+	// Handle text color and decoration
+	d := p.doc
+	tc := d.textColor
+	needDeco := d.underline || d.strikethrough
+	needState := !tc.IsBlack() || needDeco
+	if needState {
 		p.stream.SaveState()
 		p.stream.SetFillColorRGB(tc.R, tc.G, tc.B)
 	}
@@ -116,7 +118,14 @@ func (p *Page) TextAt(x, y float64, text string) {
 	p.emitText(fe, text)
 	p.stream.EndText()
 
-	if needColor {
+	if d.underline {
+		p.drawTextDecoration(x, y+0.7*fontSize, text)
+	}
+	if d.strikethrough {
+		p.drawTextDecoration(x, y+0.3*fontSize, text)
+	}
+
+	if needState {
 		p.stream.RestoreState()
 	}
 }
@@ -389,6 +398,13 @@ func (p *Page) Cell(w, h float64, text, border, align string, fill bool, ln int)
 		p.stream.MoveText(textX, textY)
 		p.emitText(fe, text)
 		p.stream.EndText()
+
+		if d.underline {
+			p.drawTextDecoration(p.x+dx, p.y+0.5*h+0.3*fontSizeUser, text)
+		}
+		if d.strikethrough {
+			p.drawTextDecoration(p.x+dx, p.y+0.5*h-0.1*fontSizeUser, text)
+		}
 
 		p.stream.RestoreState()
 	}
@@ -709,6 +725,35 @@ func (p *Page) GetX() float64 { return p.active().x }
 
 // GetY returns the current Y cursor position.
 func (p *Page) GetY() float64 { return p.active().y }
+
+// --- Text decoration ---
+
+// drawTextDecoration draws a thin filled rectangle for underline or
+// strikethrough. xUser and yUser give the reference point in user units;
+// yUser is adjusted by the font's underline position (Up) so the caller
+// only needs to pass the logical origin (baseline for underline, middle
+// for strikethrough).
+func (p *Page) drawTextDecoration(xUser, yUser float64, text string) {
+	fe := p.effectiveFontEntry()
+	if fe == nil {
+		return
+	}
+	fontSize := p.effectiveFontSizePt()
+	k := p.doc.k
+	fontSizeUser := fontSize / k
+	sw := p.GetStringWidth(text)
+
+	up := float64(fe.Up) // typically negative (e.g. -100)
+	ut := float64(fe.Ut) // typically positive (e.g. 50)
+
+	x1Pt := xUser * k
+	y1Pt := (p.h - (yUser - up/1000.0*fontSizeUser)) * k
+	wPt := sw * k
+	hPt := -ut / 1000.0 * fontSize // negative = extends downward in PDF
+
+	p.stream.Rect(x1Pt, y1Pt, wPt, hPt)
+	p.stream.Fill()
+}
 
 // --- Links ---
 
