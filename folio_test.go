@@ -15,6 +15,8 @@ import (
 	"image/png"
 	"math/big"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -6067,5 +6069,224 @@ func TestICCProfileStructure(t *testing.T) {
 	// Check color space
 	if string(profile[16:20]) != "RGB " {
 		t.Error("expected 'RGB ' color space")
+	}
+}
+
+// --- PDF-to-Image Conversion Tests ---
+
+func hasRenderer() bool {
+	for _, name := range []string{"pdftoppm", "mutool", "gs"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func createTestPDF(t *testing.T) string {
+	t.Helper()
+	doc := New()
+	p := doc.AddPage(A4)
+	p.SetFont("Helvetica", "", 14)
+	p.TextAt(50, 50, "Page 1")
+	p2 := doc.AddPage(A4)
+	p2.SetFont("Helvetica", "", 14)
+	p2.TextAt(50, 50, "Page 2")
+	p3 := doc.AddPage(A4)
+	p3.SetFont("Helvetica", "", 14)
+	p3.TextAt(50, 50, "Page 3")
+
+	tmp := filepath.Join(t.TempDir(), "test.pdf")
+	f, err := os.Create(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doc.WriteTo(f); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	f.Close()
+	return tmp
+}
+
+func TestConvertToImages_PNG(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	paths, err := ConvertToImages(pdf, outDir)
+	if err != nil {
+		t.Fatalf("ConvertToImages: %v", err)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("expected 3 images, got %d", len(paths))
+	}
+	for _, p := range paths {
+		if !strings.HasSuffix(p, ".png") {
+			t.Errorf("expected .png file, got %s", p)
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Errorf("stat %s: %v", p, err)
+		} else if info.Size() == 0 {
+			t.Errorf("image %s is empty", p)
+		}
+	}
+}
+
+func TestConvertToImages_JPEG(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	paths, err := ConvertToImages(pdf, outDir, WithFormat(JPEG))
+	if err != nil {
+		t.Fatalf("ConvertToImages JPEG: %v", err)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("expected 3 images, got %d", len(paths))
+	}
+	for _, p := range paths {
+		if !strings.HasSuffix(p, ".jpeg") && !strings.HasSuffix(p, ".jpg") {
+			t.Errorf("expected .jpeg file, got %s", p)
+		}
+	}
+}
+
+func TestConvertToImages_WithDPI(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+
+	// Low DPI
+	outLow := filepath.Join(t.TempDir(), "low")
+	pathsLow, err := ConvertToImages(pdf, outLow, WithDPI(72))
+	if err != nil {
+		t.Fatalf("ConvertToImages DPI 72: %v", err)
+	}
+	lowInfo, _ := os.Stat(pathsLow[0])
+
+	// High DPI
+	outHigh := filepath.Join(t.TempDir(), "high")
+	pathsHigh, err := ConvertToImages(pdf, outHigh, WithDPI(300))
+	if err != nil {
+		t.Fatalf("ConvertToImages DPI 300: %v", err)
+	}
+	highInfo, _ := os.Stat(pathsHigh[0])
+
+	if highInfo.Size() <= lowInfo.Size() {
+		t.Errorf("300 DPI image (%d bytes) should be larger than 72 DPI (%d bytes)",
+			highInfo.Size(), lowInfo.Size())
+	}
+}
+
+func TestConvertToImages_WithPages(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	paths, err := ConvertToImages(pdf, outDir, WithPages(2))
+	if err != nil {
+		t.Fatalf("ConvertToImages page 2: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 image for single page, got %d", len(paths))
+	}
+}
+
+func TestConvertPage_ReturnsImage(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+
+	img, err := ConvertPage(pdf, 1)
+	if err != nil {
+		t.Fatalf("ConvertPage: %v", err)
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() == 0 || bounds.Dy() == 0 {
+		t.Error("image has zero dimensions")
+	}
+}
+
+func TestConvertPage_JPEG(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+
+	img, err := ConvertPage(pdf, 1, WithFormat(JPEG))
+	if err != nil {
+		t.Fatalf("ConvertPage JPEG: %v", err)
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() == 0 || bounds.Dy() == 0 {
+		t.Error("image has zero dimensions")
+	}
+}
+
+func TestConvertPage_WithDPI(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	pdf := createTestPDF(t)
+
+	img72, err := ConvertPage(pdf, 1, WithDPI(72))
+	if err != nil {
+		t.Fatalf("ConvertPage DPI 72: %v", err)
+	}
+	img300, err := ConvertPage(pdf, 1, WithDPI(300))
+	if err != nil {
+		t.Fatalf("ConvertPage DPI 300: %v", err)
+	}
+	if img300.Bounds().Dx() <= img72.Bounds().Dx() {
+		t.Errorf("300 DPI image (%dx%d) should be larger than 72 DPI (%dx%d)",
+			img300.Bounds().Dx(), img300.Bounds().Dy(),
+			img72.Bounds().Dx(), img72.Bounds().Dy())
+	}
+}
+
+func TestConvert_NoRenderer(t *testing.T) {
+	// Test the error type when no renderer — only useful if none installed.
+	// We test findRenderer directly by checking it doesn't panic.
+	_, err := findRenderer()
+	if err != nil {
+		if err != ErrNoRenderer {
+			t.Errorf("expected ErrNoRenderer, got %v", err)
+		}
+	}
+}
+
+func TestConvert_InvalidPDF(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	// Create a file that is not a valid PDF.
+	tmp := filepath.Join(t.TempDir(), "bad.pdf")
+	os.WriteFile(tmp, []byte("not a pdf"), 0o644)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	_, err := ConvertToImages(tmp, outDir)
+	if err == nil {
+		t.Error("expected error for invalid PDF")
+	}
+}
+
+func TestConvert_NonexistentFile(t *testing.T) {
+	if !hasRenderer() {
+		t.Skip("no PDF renderer available")
+	}
+	outDir := filepath.Join(t.TempDir(), "out")
+	_, err := ConvertToImages("/nonexistent/file.pdf", outDir)
+	if err == nil {
+		t.Error("expected error for nonexistent file")
 	}
 }
