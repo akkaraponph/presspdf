@@ -332,6 +332,8 @@ func (p *Page) UseTemplate(name string, x, y, w, h float64)
 func NewTable(doc *Document, page *Page) *Table
 ```
 
+### Simple API (immediate drawing)
+
 ```go
 func (t *Table) SetWidths(widths ...float64)
 func (t *Table) SetAligns(aligns ...string)           // "L", "C", "R" per column
@@ -345,14 +347,75 @@ func (t *Table) Header(values ...string)
 func (t *Table) Row(values ...string)
 ```
 
+### Complex API (colspan, rowspan, multi-line, per-cell styling)
+
+```go
+func (t *Table) AddHeader(cells ...TableCell)
+func (t *Table) AddRow(cells ...TableCell)
+func (t *Table) SetCellPadding(padding float64)
+func (t *Table) SetLineHeight(h float64)
+func (t *Table) Render()
+```
+
+### TableCell
+
+```go
+type TableCell struct {
+    Text    string     // cell text (supports \n for line breaks)
+    ColSpan int        // columns to span (default 1)
+    RowSpan int        // rows to span (default 1)
+    Align   string     // "L", "C", "R" — overrides column default
+    Style   *CellStyle // per-cell style (nil = use default)
+}
+```
+
 ### CellStyle
 
 ```go
 type CellStyle struct {
-    FillColor [3]int  // RGB 0-255
-    TextColor [3]int  // RGB 0-255
-    FontStyle string  // "", "B", "I", "BI"
+    FontFamily string  // font family (e.g. "helvetica")
+    FontStyle  string  // "", "B", "I", "BI"
+    FontSize   float64 // font size in points
+    FillColor  [3]int  // RGB 0-255
+    TextColor  [3]int  // RGB 0-255
+    DrawColor  [3]int  // RGB 0-255
+    Fill       bool    // fill background
 }
+```
+
+### Examples
+
+```go
+// Simple table (unchanged).
+tbl := folio.NewTable(doc, page)
+tbl.SetWidths(40, 100, 40)
+tbl.Header("#", "Name", "Price")
+tbl.Row("1", "Widget", "9.99")
+
+// Complex table with colspan and rowspan.
+tbl := folio.NewTable(doc, page)
+tbl.SetWidths(40, 40, 40, 40)
+tbl.SetCellPadding(2)
+
+tbl.AddHeader(folio.TableCell{Text: "Report", ColSpan: 4, Align: "C"})
+tbl.AddHeader(
+    folio.TableCell{Text: "Region"},
+    folio.TableCell{Text: "Q1"},
+    folio.TableCell{Text: "Q2"},
+    folio.TableCell{Text: "Total"},
+)
+tbl.AddRow(
+    folio.TableCell{Text: "North", RowSpan: 2},
+    folio.TableCell{Text: "100"},
+    folio.TableCell{Text: "150"},
+    folio.TableCell{Text: "250"},
+)
+tbl.AddRow(
+    folio.TableCell{Text: "200"},
+    folio.TableCell{Text: "180"},
+    folio.TableCell{Text: "380"},
+)
+tbl.Render()
 ```
 
 ---

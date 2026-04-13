@@ -7234,3 +7234,349 @@ func TestCompressPDF_SplitThenCompress(t *testing.T) {
 		t.Error("output is not a valid PDF")
 	}
 }
+
+// ---- Complex Table tests ----
+
+func TestComplexTable_ColSpan(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(40, 60, 40, 50)
+
+	// Header spanning all 4 columns.
+	tbl.AddHeader(TableCell{Text: "Full Report", ColSpan: 4, Align: "C"})
+	// Sub-header.
+	tbl.AddHeader(
+		TableCell{Text: "#"},
+		TableCell{Text: "Name"},
+		TableCell{Text: "Qty"},
+		TableCell{Text: "Price"},
+	)
+	tbl.AddRow(
+		TableCell{Text: "1"},
+		TableCell{Text: "Widget"},
+		TableCell{Text: "10"},
+		TableCell{Text: "99.99"},
+	)
+	// Subtotal spanning first 3 columns.
+	tbl.AddRow(
+		TableCell{Text: "Subtotal", ColSpan: 3, Align: "R"},
+		TableCell{Text: "999.90"},
+	)
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_RowSpan(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(30, 80, 50)
+
+	tbl.AddHeader(
+		TableCell{Text: "Cat"},
+		TableCell{Text: "Item"},
+		TableCell{Text: "Price"},
+	)
+	// "Electronics" spans 3 rows.
+	tbl.AddRow(
+		TableCell{Text: "Electronics", RowSpan: 3},
+		TableCell{Text: "Phone"},
+		TableCell{Text: "699"},
+	)
+	tbl.AddRow(
+		TableCell{Text: "Laptop"},
+		TableCell{Text: "1299"},
+	)
+	tbl.AddRow(
+		TableCell{Text: "Tablet"},
+		TableCell{Text: "499"},
+	)
+	// "Books" spans 2 rows.
+	tbl.AddRow(
+		TableCell{Text: "Books", RowSpan: 2},
+		TableCell{Text: "Go Programming"},
+		TableCell{Text: "45"},
+	)
+	tbl.AddRow(
+		TableCell{Text: "PDF Spec"},
+		TableCell{Text: "free"},
+	)
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.HasPrefix(s, "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+	if !strings.Contains(s, "/Type /Page") {
+		t.Error("missing page object")
+	}
+}
+
+func TestComplexTable_MultiLine(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(30, 80, 50)
+	tbl.SetCellPadding(2)
+
+	tbl.AddHeader(
+		TableCell{Text: "#"},
+		TableCell{Text: "Description"},
+		TableCell{Text: "Notes"},
+	)
+	// Second column has long text that should wrap.
+	tbl.AddRow(
+		TableCell{Text: "1"},
+		TableCell{Text: "This is a very long description that should wrap across multiple lines in the cell to demonstrate multi-line support"},
+		TableCell{Text: "Short"},
+	)
+	tbl.AddRow(
+		TableCell{Text: "2"},
+		TableCell{Text: "Short text"},
+		TableCell{Text: "Another long note that wraps to show that all cells in a row share the same height"},
+	)
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_PerCellStyle(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(50, 50, 50)
+
+	headerStyle := CellStyle{
+		FontFamily: "helvetica",
+		FontStyle:  "B",
+		FontSize:   14,
+		TextColor:  [3]int{255, 255, 255},
+		FillColor:  [3]int{0, 51, 102},
+		Fill:       true,
+	}
+	redCell := CellStyle{
+		FontFamily: "helvetica",
+		FontSize:   12,
+		TextColor:  [3]int{255, 0, 0},
+	}
+
+	tbl.AddHeader(
+		TableCell{Text: "A", Style: &headerStyle},
+		TableCell{Text: "B", Style: &headerStyle},
+		TableCell{Text: "C", Style: &headerStyle},
+	)
+	tbl.AddRow(
+		TableCell{Text: "Normal"},
+		TableCell{Text: "RED", Style: &redCell},
+		TableCell{Text: "Normal"},
+	)
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_ColSpanAndRowSpanCombined(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(40, 40, 40, 40)
+	tbl.SetCellPadding(2)
+
+	// Title spanning all columns.
+	tbl.AddHeader(TableCell{Text: "Quarterly Report", ColSpan: 4, Align: "C"})
+
+	// Sub-headers with rowspan.
+	tbl.AddHeader(
+		TableCell{Text: "Region"},
+		TableCell{Text: "Q1"},
+		TableCell{Text: "Q2"},
+		TableCell{Text: "Total", RowSpan: 2},
+	)
+	tbl.AddHeader(
+		TableCell{Text: "(name)"},
+		TableCell{Text: "(jan-mar)"},
+		TableCell{Text: "(apr-jun)"},
+	)
+
+	tbl.AddRow(
+		TableCell{Text: "North"},
+		TableCell{Text: "100"},
+		TableCell{Text: "150"},
+		TableCell{Text: "250"},
+	)
+	tbl.AddRow(
+		TableCell{Text: "South"},
+		TableCell{Text: "200"},
+		TableCell{Text: "180"},
+		TableCell{Text: "380"},
+	)
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_EmptyRows(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(50, 50)
+
+	// No rows buffered — Render should be a no-op.
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_ExplicitNewlines(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(60, 100)
+	tbl.SetCellPadding(2)
+
+	tbl.AddRow(
+		TableCell{Text: "Address"},
+		TableCell{Text: "123 Main St\nSuite 456\nNew York, NY 10001"},
+	)
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_SimpleAndComplexCoexist(t *testing.T) {
+	// Verify the simple API still works alongside complex features.
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// Simple table.
+	tbl1 := NewTable(doc, page)
+	tbl1.SetWidths(50, 50, 50)
+	tbl1.Header("A", "B", "C")
+	tbl1.Row("1", "2", "3")
+	tbl1.Row("4", "5", "6")
+
+	// Complex table on the same page.
+	tbl2 := NewTable(doc, page)
+	tbl2.SetWidths(50, 50, 50)
+	tbl2.AddHeader(TableCell{Text: "X-Y-Z", ColSpan: 3, Align: "C"})
+	tbl2.AddRow(
+		TableCell{Text: "X"},
+		TableCell{Text: "Y"},
+		TableCell{Text: "Z"},
+	)
+	tbl2.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+}
+
+func TestComplexTable_PageBreakWithHeaders(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 10)
+	doc.SetAutoPageBreak(true, 10)
+	page := doc.AddPage(A4)
+
+	tbl := NewTable(doc, page)
+	tbl.SetWidths(30, 80, 50)
+
+	tbl.AddHeader(
+		TableCell{Text: "#"},
+		TableCell{Text: "Item"},
+		TableCell{Text: "Price"},
+	)
+
+	// Add many rows to trigger page break.
+	for i := 1; i <= 80; i++ {
+		tbl.AddRow(
+			TableCell{Text: fmt.Sprintf("%d", i)},
+			TableCell{Text: fmt.Sprintf("Item number %d", i)},
+			TableCell{Text: fmt.Sprintf("%.2f", float64(i)*9.99)},
+		)
+	}
+	tbl.Render()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.HasPrefix(s, "%PDF-") {
+		t.Error("invalid PDF output")
+	}
+	// Should have multiple pages.
+	pages := strings.Count(s, "/Type /Page\n")
+	if pages < 2 {
+		t.Errorf("expected multiple pages, got %d", pages)
+	}
+}
