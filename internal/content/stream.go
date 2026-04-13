@@ -356,6 +356,12 @@ func (s *Stream) EndMarkedContent() {
 	s.buf.WriteString("EMC\n")
 }
 
+// BeginOptionalContent emits BDC with an optional content group (OCG) reference.
+// name is the resource property name (e.g. "OC0").
+func (s *Stream) BeginOptionalContent(name string) {
+	fmt.Fprintf(&s.buf, "/OC /%s BDC\n", name)
+}
+
 // --- Raw ---
 
 // Raw writes an arbitrary operator string followed by newline.

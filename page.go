@@ -37,10 +37,19 @@ type Page struct {
 	// page boxes (optional: TrimBox, CropBox, BleedBox, ArtBox) in PDF points
 	pageBoxes map[string][4]float64
 
+	// file attachment annotations on this page
+	attachAnnotations []attachAnnotation
+
 	// tagged PDF (structure tree)
 	nextMCID       int              // next marked content ID for this page
 	structElements []*structElement // elements on this page
 	currentTag     *structElement   // current open tag (for nesting)
+}
+
+// attachAnnotation represents a file attachment annotation on a page.
+type attachAnnotation struct {
+	attachment Attachment
+	x, y, w, h float64 // rect in user units
 }
 
 // linkAnnotation represents a hyperlink annotation on a page.
@@ -315,6 +324,25 @@ func (p *Page) RoundedRect(x, y, w, h, r float64, style string) {
 	default: // "D" or ""
 		p.stream.Stroke()
 	}
+}
+
+// RoundedRectExt draws a rectangle with per-corner radii.
+// rTL, rTR, rBR, rBL are the radii for top-left, top-right, bottom-right,
+// and bottom-left corners respectively. A zero radius produces a square corner.
+// style: "D" (stroke), "F" (fill), "DF" or "FD" (fill and stroke).
+func (p *Page) RoundedRectExt(x, y, w, h, rTL, rTR, rBR, rBL float64, style string) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.RoundedRectExt(
+		state.ToPointsX(x, k),
+		state.ToPointsY(y+h, p.h, k),
+		w*k, h*k,
+		rTL*k, rTR*k, rBR*k, rBL*k,
+	)
+	p.paintStyle(style)
 }
 
 // Circle draws a circle centered at (x, y) with radius r in user units.
@@ -790,6 +818,47 @@ func (p *Page) DrawImageRect(name string, x, y, w, h float64) {
 	yPt := state.ToPointsY(y+h, p.h, k) // bottom-left of image in PDF coords
 
 	p.stream.DrawImage("Im"+entry.Name, wPt, 0, 0, hPt, xPt, yPt)
+}
+
+// DrawImage draws a registered image with flow support.
+// If flow is true, the image is positioned at the current cursor Y (ignoring
+// the y parameter), a page break is triggered if needed, and the cursor
+// advances past the image. If flow is false, behavior is identical to
+// DrawImageRect.
+func (p *Page) DrawImage(name string, x, y, w, h float64, flow bool) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	if flow {
+		p = p.checkPageBreak(h)
+		y = p.y
+		p.DrawImageRect(name, x, y, w, h)
+		p.y += h
+	} else {
+		p.DrawImageRect(name, x, y, w, h)
+	}
+}
+
+// SetHomeXY resets the cursor to the top-left position (left margin, top margin).
+func (p *Page) SetHomeXY() {
+	p = p.active()
+	p.x = p.doc.lMargin
+	p.y = p.doc.tMargin
+}
+
+// RawWriteStr writes a raw PDF content stream string to the page.
+// The string is written as-is with no coordinate conversion or escaping.
+// Use this only when you know exactly what PDF operators to emit.
+func (p *Page) RawWriteStr(s string) {
+	p = p.active()
+	p.stream.Raw(s)
+}
+
+// RawWriteBuf writes raw PDF content stream bytes to the page.
+func (p *Page) RawWriteBuf(data []byte) {
+	p = p.active()
+	p.stream.Raw(string(data))
 }
 
 // --- Transforms ---
@@ -2141,6 +2210,15 @@ func (p *Page) AddAnchor(name string) {
 // For TTF fonts, text is hex-encoded as Unicode code points (CIDs).
 // Thai tone marks that follow above-vowels are raised using the Ts (text-rise) operator.
 func (p *Page) emitText(fe *resources.FontEntry, text string) {
+	// RTL: reverse rune order for right-to-left text.
+	if p.doc.isRTL {
+		runes := []rune(text)
+		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+			runes[i], runes[j] = runes[j], runes[i]
+		}
+		text = string(runes)
+	}
+
 	if fe.Type != "TTF" {
 		p.stream.ShowText(pdfEscape(text))
 		return

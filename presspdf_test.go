@@ -9723,3 +9723,506 @@ func TestSetPageBoxMultipleTypes(t *testing.T) {
 		}
 	}
 }
+
+// ---- Feature 6: Transparency, Layers, Spot Colors, Attachments, RTL, Raw, Other ----
+
+func TestSetAlphaBlendMode(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	doc.SetAlpha(0.5, "Multiply")
+	p.Rect(20, 20, 50, 50, "F")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/BM /Multiply") {
+		t.Error("missing /BM /Multiply in ExtGState")
+	}
+	if !strings.Contains(s, "/ca 0.500") {
+		t.Error("missing alpha value in ExtGState")
+	}
+}
+
+func TestSetAlphaBlendModeNormal(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	doc.SetAlpha(0.7) // no blend mode = Normal (should not emit /BM)
+	p.Rect(20, 20, 50, 50, "F")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if strings.Contains(s, "/BM") {
+		t.Error("should not emit /BM for Normal blend mode")
+	}
+}
+
+func TestSetAlphaBackwardCompatible(t *testing.T) {
+	// SetAlpha(float64) with no blend mode should still work
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	doc.SetAlpha(0.3)
+	p.TextAt(20, 30, "Transparent")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/ca 0.300") {
+		t.Error("missing alpha value")
+	}
+}
+
+func TestLayerBasic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+
+	layer1 := doc.AddLayer("Foreground", true)
+	layer2 := doc.AddLayer("Background", false)
+
+	doc.BeginLayer(layer1)
+	p.TextAt(20, 30, "Visible text")
+	doc.EndLayer()
+
+	doc.BeginLayer(layer2)
+	p.TextAt(20, 50, "Hidden text")
+	doc.EndLayer()
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// Check OCG dicts
+	if !strings.Contains(s, "/Type /OCG") {
+		t.Error("missing OCG type")
+	}
+	if !strings.Contains(s, "/Name (Foreground)") {
+		t.Error("missing layer name 'Foreground'")
+	}
+	// Check BDC/EMC in content stream
+	if !strings.Contains(s, "/OC /OC0 BDC") {
+		t.Error("missing BDC for layer 0")
+	}
+	if !strings.Contains(s, "EMC") {
+		t.Error("missing EMC")
+	}
+	// Check catalog OCProperties
+	if !strings.Contains(s, "/OCProperties") {
+		t.Error("missing /OCProperties in catalog")
+	}
+}
+
+func TestLayerOpenPane(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddLayer("Test", true)
+	doc.OpenLayerPane()
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/PageMode /UseOC") {
+		t.Error("missing /PageMode /UseOC")
+	}
+}
+
+func TestLayerVisibility(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddLayer("Hidden", false)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// The hidden layer should appear in /OFF array
+	if !strings.Contains(s, "/OFF [") {
+		t.Error("missing /OFF array for hidden layer")
+	}
+}
+
+func TestSpotColorBasic(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+
+	doc.AddSpotColor("PANTONE 123 C", 0, 20, 100, 0)
+	doc.SetFillSpotColor("PANTONE 123 C", 100)
+	p.Rect(20, 20, 50, 30, "F")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// Check Separation color space
+	if !strings.Contains(s, "/Separation") {
+		t.Error("missing /Separation color space")
+	}
+	if !strings.Contains(s, "PANTONE#20123#20C") {
+		t.Error("missing spot color name with encoded spaces")
+	}
+	if !strings.Contains(s, "/DeviceCMYK") {
+		t.Error("missing /DeviceCMYK in separation")
+	}
+	// Check color space reference in resource dict
+	if !strings.Contains(s, "/ColorSpace") {
+		t.Error("missing /ColorSpace in resource dict")
+	}
+}
+
+func TestSpotColorDraw(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+
+	doc.AddSpotColor("MyRed", 0, 100, 100, 0)
+	doc.SetDrawSpotColor("MyRed", 80)
+	p.Line(20, 20, 100, 20)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/CS1 CS 0.800 SCN") {
+		t.Error("missing spot color stroke operator")
+	}
+}
+
+func TestSpotColorText(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+
+	doc.AddSpotColor("MyBlue", 100, 50, 0, 0)
+	doc.SetTextSpotColor("MyBlue", 100)
+	p.TextAt(20, 30, "Spot color text")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/CS1 cs 1.000 scn") {
+		t.Error("missing spot color text operator")
+	}
+}
+
+func TestSpotColorDuplicate(t *testing.T) {
+	doc := New()
+	doc.AddSpotColor("Test", 0, 0, 0, 100)
+	doc.AddSpotColor("Test", 100, 0, 0, 0) // duplicate
+	if doc.Err() == nil {
+		t.Error("expected error for duplicate spot color")
+	}
+}
+
+func TestSpotColorUnregistered(t *testing.T) {
+	doc := New()
+	doc.AddPage(A4)
+	doc.SetFillSpotColor("Unknown", 100)
+	if doc.Err() == nil {
+		t.Error("expected error for unregistered spot color")
+	}
+}
+
+func TestAttachmentsDocLevel(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+
+	doc.SetAttachments([]Attachment{
+		{Content: []byte("Hello, World!"), Filename: "hello.txt", Description: "Test file"},
+	})
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/Type /EmbeddedFile") {
+		t.Error("missing embedded file stream")
+	}
+	if !strings.Contains(s, "/Type /Filespec") {
+		t.Error("missing filespec dictionary")
+	}
+	if !strings.Contains(s, "/EmbeddedFiles") {
+		t.Error("missing /EmbeddedFiles in catalog Names")
+	}
+}
+
+func TestAttachmentAnnotation(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+
+	doc.AddAttachmentAnnotation(
+		Attachment{Content: []byte("data"), Filename: "data.bin"},
+		20, 20, 30, 30,
+	)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/Subtype /FileAttachment") {
+		t.Error("missing FileAttachment annotation")
+	}
+}
+
+func TestRTL(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+
+	doc.RTL()
+	p.TextAt(20, 30, "abc")
+	doc.LTR()
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// "abc" reversed should be "cba"
+	if !strings.Contains(s, "cba") {
+		t.Error("RTL text should reverse rune order")
+	}
+}
+
+func TestRawWriteStr(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	p.RawWriteStr("100 100 m 200 200 l S")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "100 100 m 200 200 l S") {
+		t.Error("raw write content missing")
+	}
+}
+
+func TestRawWriteBuf(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	p.RawWriteBuf([]byte("50 50 50 50 re S"))
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "50 50 50 50 re S") {
+		t.Error("raw write buf content missing")
+	}
+}
+
+func TestGetConversionRatio(t *testing.T) {
+	doc := New() // default mm
+	ratio := doc.GetConversionRatio()
+	// mm to points: 72/25.4 ≈ 2.835
+	if ratio < 2.8 || ratio > 2.9 {
+		t.Errorf("conversion ratio = %.3f, expected ~2.835", ratio)
+	}
+}
+
+func TestSetHomeXY(t *testing.T) {
+	doc := New()
+	doc.SetMargins(15, 20, 10)
+	p := doc.AddPage(A4)
+	p.SetXY(100, 200)
+	p.SetHomeXY()
+	if p.GetX() != 15 {
+		t.Errorf("X after SetHomeXY = %.2f, expected 15", p.GetX())
+	}
+	if p.GetY() != 20 {
+		t.Errorf("Y after SetHomeXY = %.2f, expected 20", p.GetY())
+	}
+}
+
+func TestRoundedRectExt(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	p.RoundedRectExt(20, 20, 80, 40, 5, 10, 15, 0, "D")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// Should contain bezier curve operators (c) for rounded corners
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing bezier curve in RoundedRectExt")
+	}
+	// Should contain line operators (l) for straight edges
+	if !strings.Contains(s, " l\n") {
+		t.Error("missing line segment in RoundedRectExt")
+	}
+}
+
+func TestRoundedRectExtFill(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	p.RoundedRectExt(10, 10, 60, 30, 3, 3, 3, 3, "F")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "\nf\n") {
+		t.Error("missing fill operator")
+	}
+}
+
+func TestDrawImageFlow(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetAutoPageBreak(true, 10)
+
+	// Register a tiny 1x1 JPEG
+	img := createTestJPEG(t)
+	if err := doc.RegisterImage("tiny", bytes.NewReader(img)); err != nil {
+		t.Fatal(err)
+	}
+
+	p := doc.AddPage(A4)
+	initialY := p.GetY()
+	p.DrawImage("tiny", 20, 0, 50, 30, true) // flow=true: uses current Y, advances
+	if p.GetY() != initialY+30 {
+		t.Errorf("Y after flow image = %.2f, expected %.2f", p.GetY(), initialY+30)
+	}
+}
+
+func TestRegisterImageFromFile(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	// Write a temp JPEG file
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/test.jpg"
+	img := createTestJPEG(t)
+	if err := os.WriteFile(tmpFile, img, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := doc.RegisterImageFromFile("test", tmpFile); err != nil {
+		t.Fatal(err)
+	}
+
+	p := doc.AddPage(A4)
+	p.DrawImageRect("test", 20, 20, 50, 50)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "%PDF") {
+		t.Error("invalid PDF")
+	}
+}
+
+// createTestJPEG generates a minimal JPEG for testing.
+func createTestJPEG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			img.Set(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestBlendModeScreen(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+	doc.SetAlpha(0.8, "Screen")
+	p.Rect(20, 20, 50, 50, "F")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/BM /Screen") {
+		t.Error("missing /BM /Screen")
+	}
+}
+
+func TestMultipleLayersSwitching(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	p := doc.AddPage(A4)
+
+	l1 := doc.AddLayer("Layer1", true)
+	l2 := doc.AddLayer("Layer2", true)
+
+	// BeginLayer without EndLayer should auto-end the previous
+	doc.BeginLayer(l1)
+	p.TextAt(20, 30, "L1")
+	doc.BeginLayer(l2) // should auto-end l1
+	p.TextAt(20, 50, "L2")
+	doc.EndLayer()
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/OC /OC0 BDC") {
+		t.Error("missing BDC for layer 0")
+	}
+	if !strings.Contains(s, "/OC /OC1 BDC") {
+		t.Error("missing BDC for layer 1")
+	}
+	// Should have 2 EMC (one from auto-end, one from manual EndLayer)
+	if strings.Count(s, "EMC") < 2 {
+		t.Error("expected at least 2 EMC operators")
+	}
+}
+
+func TestResourceDictLayerProperties(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+	doc.AddLayer("Test", true)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/Properties") {
+		t.Error("missing /Properties in resource dict")
+	}
+}

@@ -84,6 +84,7 @@ type Document struct {
 	strikethrough      bool
 	underlineThickness float64 // multiplier for underline weight (default 1.0)
 	currentAlpha       float64 // current opacity (0.0–1.0), default 1.0
+	currentBlendMode   string  // current blend mode, default "Normal"
 	charSpacing        float64 // extra space between characters (Tc), in points
 	wordSpacing        float64 // extra space added to ASCII space (Tw), in points
 	textRise           float64 // vertical text baseline shift (Ts), in points
@@ -131,6 +132,21 @@ type Document struct {
 	tagged     bool
 	structRoot *structElement
 
+	// optional content groups (layers)
+	layers        []layerEntry
+	currentLayer  int  // -1 = no active layer
+	openLayerPane bool // true = open layer panel on document open
+
+	// spot colors (Separation color spaces)
+	spotColors    []spotColorEntry
+	spotColorMap  map[string]int // name → index in spotColors
+
+	// file attachments
+	attachments []Attachment
+
+	// RTL text direction
+	isRTL bool
+
 	// encryption (password protection)
 	encrypted   bool
 	encryptAES  bool   // true = AES-256 (V=5 R=6), false = RC4-40 (V=1 R=2)
@@ -144,9 +160,32 @@ type Document struct {
 
 // alphaEntry represents a registered alpha transparency ExtGState.
 type alphaEntry struct {
-	alpha  float64 // opacity 0.0–1.0
-	name   string  // resource name: "GS1", "GS2", ...
-	objNum int     // PDF object number, set during serialization
+	alpha     float64 // opacity 0.0–1.0
+	blendMode string  // PDF blend mode: "Normal", "Multiply", etc.
+	name      string  // resource name: "GS1", "GS2", ...
+	objNum    int     // PDF object number, set during serialization
+}
+
+// layerEntry represents an Optional Content Group (OCG) layer.
+type layerEntry struct {
+	name    string
+	visible bool
+	objNum  int // set during serialization
+}
+
+// spotColorEntry represents a Separation (spot) color definition.
+type spotColorEntry struct {
+	name         string
+	c, m, y, k  float64 // CMYK components 0.0–1.0
+	objNum       int     // set during serialization
+}
+
+// Attachment represents a file to embed in the PDF.
+type Attachment struct {
+	Content     []byte // file data
+	Filename    string // display name
+	Description string // optional description
+	objNum      int    // set during serialization
 }
 
 // anchorDest stores the target location for an internal link destination.
@@ -197,9 +236,12 @@ func New(opts ...Option) *Document {
 		anchors:      make(map[string]anchorDest),
 		alphaByKey:   make(map[string]*alphaEntry),
 		aliases:      make(map[string]string),
+		spotColorMap: make(map[string]int),
+		currentLayer: -1,
 		zoomMode:     "default",
 		layoutMode:   "default",
 		currentAlpha:       1.0,
+		currentBlendMode:   "Normal",
 		underlineThickness: 1.0,
 		lineWidth:          0.2,
 	}
@@ -584,8 +626,12 @@ func (d *Document) SetTextColor(r, g, b int) {
 
 // SetAlpha sets the opacity for subsequent drawing operations.
 // alpha ranges from 0.0 (fully transparent) to 1.0 (fully opaque).
-// This affects both fill and stroke operations via a PDF ExtGState resource.
-func (d *Document) SetAlpha(alpha float64) {
+// blendMode optionally specifies a PDF blend mode. Pass "" or "Normal"
+// for normal compositing. Supported modes: "Normal", "Multiply", "Screen",
+// "Overlay", "Darken", "Lighten", "ColorDodge", "ColorBurn", "HardLight",
+// "SoftLight", "Difference", "Exclusion", "Hue", "Saturation", "Color",
+// "Luminosity".
+func (d *Document) SetAlpha(alpha float64, blendMode ...string) {
 	if alpha < 0 {
 		alpha = 0
 	}
@@ -594,13 +640,20 @@ func (d *Document) SetAlpha(alpha float64) {
 	}
 	d.currentAlpha = alpha
 
-	// Register the alpha state (dedup by value).
-	key := fmt.Sprintf("%.3f", alpha)
+	bm := "Normal"
+	if len(blendMode) > 0 && blendMode[0] != "" {
+		bm = blendMode[0]
+	}
+	d.currentBlendMode = bm
+
+	// Register the alpha state (dedup by value + blend mode).
+	key := fmt.Sprintf("%.3f %s", alpha, bm)
 	entry, ok := d.alphaByKey[key]
 	if !ok {
 		entry = &alphaEntry{
-			alpha: alpha,
-			name:  fmt.Sprintf("GS%d", len(d.alphaStates)+1),
+			alpha:     alpha,
+			blendMode: bm,
+			name:      fmt.Sprintf("GS%d", len(d.alphaStates)+1),
 		}
 		d.alphaStates = append(d.alphaStates, entry)
 		d.alphaByKey[key] = entry
@@ -910,6 +963,184 @@ func (d *Document) GetMargins() (left, top, right, bottom float64) {
 	return d.lMargin, d.tMargin, d.rMargin, d.bMargin
 }
 
+// --- Layers (Optional Content Groups) ---
+
+// AddLayer creates a new optional content group (layer).
+// name is the display name; visible controls initial visibility.
+// Returns a layer ID for use with BeginLayer.
+func (d *Document) AddLayer(name string, visible bool) int {
+	id := len(d.layers)
+	d.layers = append(d.layers, layerEntry{name: name, visible: visible})
+	return id
+}
+
+// BeginLayer starts drawing content in the specified layer. All drawing
+// operations until EndLayer will be part of this layer. Layers can be
+// toggled on/off in PDF viewers that support Optional Content Groups.
+func (d *Document) BeginLayer(id int) {
+	if d.err != nil || d.currentPage == nil {
+		return
+	}
+	if id < 0 || id >= len(d.layers) {
+		return
+	}
+	if d.currentLayer >= 0 {
+		d.EndLayer()
+	}
+	d.currentLayer = id
+	d.currentPage.stream.BeginOptionalContent(fmt.Sprintf("OC%d", id))
+}
+
+// EndLayer ends the current layer started by BeginLayer.
+func (d *Document) EndLayer() {
+	if d.currentLayer < 0 || d.currentPage == nil {
+		return
+	}
+	d.currentPage.stream.EndMarkedContent()
+	d.currentLayer = -1
+}
+
+// OpenLayerPane causes the PDF viewer to open the layers panel when
+// the document is opened.
+func (d *Document) OpenLayerPane() {
+	d.openLayerPane = true
+}
+
+// --- Spot Colors ---
+
+// AddSpotColor registers a named spot color with CMYK values (0–100 each).
+// Use the name with SetDrawSpotColor, SetFillSpotColor, or SetTextSpotColor.
+func (d *Document) AddSpotColor(name string, c, m, y, k int) {
+	if d.err != nil {
+		return
+	}
+	if _, exists := d.spotColorMap[name]; exists {
+		d.err = fmt.Errorf("AddSpotColor: %q already registered", name)
+		return
+	}
+	idx := len(d.spotColors)
+	d.spotColors = append(d.spotColors, spotColorEntry{
+		name: name,
+		c:    float64(clampByte(c)) / 100.0,
+		m:    float64(clampByte(m)) / 100.0,
+		y:    float64(clampByte(y)) / 100.0,
+		k:    float64(clampByte(k)) / 100.0,
+	})
+	d.spotColorMap[name] = idx
+}
+
+// clampByte clamps v to 0–100 range.
+func clampByte(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
+// SetDrawSpotColor sets the stroke color to a registered spot color.
+// tint ranges from 0 (no ink) to 100 (full ink).
+func (d *Document) SetDrawSpotColor(name string, tint int) {
+	if d.err != nil {
+		return
+	}
+	idx, ok := d.spotColorMap[name]
+	if !ok {
+		d.err = fmt.Errorf("SetDrawSpotColor: spot color %q not registered", name)
+		return
+	}
+	if d.currentPage != nil {
+		d.currentPage.stream.Raw(fmt.Sprintf("/CS%d CS %.3f SCN", idx+1, float64(clampByte(tint))/100.0))
+	}
+}
+
+// SetFillSpotColor sets the fill color to a registered spot color.
+// tint ranges from 0 (no ink) to 100 (full ink).
+func (d *Document) SetFillSpotColor(name string, tint int) {
+	if d.err != nil {
+		return
+	}
+	idx, ok := d.spotColorMap[name]
+	if !ok {
+		d.err = fmt.Errorf("SetFillSpotColor: spot color %q not registered", name)
+		return
+	}
+	if d.currentPage != nil {
+		d.currentPage.stream.Raw(fmt.Sprintf("/CS%d cs %.3f scn", idx+1, float64(clampByte(tint))/100.0))
+	}
+}
+
+// SetTextSpotColor sets the text color to a registered spot color.
+// tint ranges from 0 (no ink) to 100 (full ink).
+func (d *Document) SetTextSpotColor(name string, tint int) {
+	if d.err != nil {
+		return
+	}
+	idx, ok := d.spotColorMap[name]
+	if !ok {
+		d.err = fmt.Errorf("SetTextSpotColor: spot color %q not registered", name)
+		return
+	}
+	if d.currentPage != nil {
+		d.currentPage.stream.Raw(fmt.Sprintf("/CS%d cs %.3f scn", idx+1, float64(clampByte(tint))/100.0))
+	}
+}
+
+// --- Attachments ---
+
+// SetAttachments sets document-level file attachments. These are embedded
+// in the PDF and appear in the viewer's attachment panel.
+func (d *Document) SetAttachments(attachments []Attachment) {
+	d.attachments = attachments
+}
+
+// AddAttachmentAnnotation adds a file attachment annotation on the current
+// page at the specified rectangle (in user units). The attachment appears
+// as a clickable icon.
+func (d *Document) AddAttachmentAnnotation(a Attachment, x, y, w, h float64) {
+	if d.err != nil || d.currentPage == nil {
+		return
+	}
+	a.objNum = 0 // will be set during serialization
+	d.currentPage.attachAnnotations = append(d.currentPage.attachAnnotations, attachAnnotation{
+		attachment: a,
+		x:         x,
+		y:         y,
+		w:         w,
+		h:         h,
+	})
+}
+
+// --- RTL Text ---
+
+// RTL enables right-to-left text mode. Text rendered with Cell, Write,
+// and MultiCell will have its rune order reversed.
+func (d *Document) RTL() { d.isRTL = true }
+
+// LTR disables right-to-left text mode (the default).
+func (d *Document) LTR() { d.isRTL = false }
+
+// --- Raw PDF Access ---
+
+// GetConversionRatio returns the conversion factor from user units to PDF
+// points. Multiply a user-unit value by this ratio to get points.
+func (d *Document) GetConversionRatio() float64 {
+	return d.k
+}
+
+// RegisterImageFromFile registers an image from a file path.
+// The format is auto-detected from the file contents.
+func (d *Document) RegisterImageFromFile(name, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("RegisterImageFromFile: %w", err)
+	}
+	defer f.Close()
+	return d.RegisterImage(name, f)
+}
+
 // AddPage adds a new page with the given size and returns it.
 // If a footer function is set, it is called on the outgoing page first.
 // If a header function is set, it is called on the new page after creation.
@@ -970,8 +1201,8 @@ func (d *Document) AddPage(size PageSize) *Page {
 	}
 
 	// Apply alpha if non-default
-	if d.currentAlpha != 1.0 {
-		key := fmt.Sprintf("%.3f", d.currentAlpha)
+	if d.currentAlpha != 1.0 || d.currentBlendMode != "Normal" {
+		key := fmt.Sprintf("%.3f %s", d.currentAlpha, d.currentBlendMode)
 		if entry, ok := d.alphaByKey[key]; ok {
 			p.stream.SetExtGState(entry.name)
 		}

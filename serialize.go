@@ -83,6 +83,15 @@ func (d *Document) serialize() (*pdfcore.Writer, error) {
 	// 6. ExtGState (alpha transparency)
 	d.putExtGStates(w)
 
+	// 6.5. Layers (OCG)
+	d.putLayers(w)
+
+	// 6.6. Spot colors (Separation)
+	d.putSpotColors(w)
+
+	// 6.7. Attachments (embedded files)
+	attachFilespecObjs := d.putAttachments(w)
+
 	// 7. Gradients (shading objects and their functions)
 	d.putGradients(w)
 
@@ -133,7 +142,7 @@ func (d *Document) serialize() (*pdfcore.Writer, error) {
 	infoObjNum := d.putInfo(w)
 
 	// 18. Catalog
-	catalogObjNum := d.putCatalog(w, pageObjNums, outlineRootObj, fieldObjNums, metadataObjNum, outputIntentObjNum, structTreeRootObj, jsObjNum, xmpObjNum)
+	catalogObjNum := d.putCatalog(w, pageObjNums, outlineRootObj, fieldObjNums, metadataObjNum, outputIntentObjNum, structTreeRootObj, jsObjNum, xmpObjNum, attachFilespecObjs)
 
 	// 14. Xref
 	xrefOffset := w.WriteXref()
@@ -156,7 +165,9 @@ func (d *Document) putPages(w *pdfcore.Writer) []int {
 	objNum := 3 // first available after reserved objects 1 and 2
 	for i, p := range d.pages {
 		pageObjNums[i] = objNum
-		objNum += 2 + len(p.links) // page dict + content + annotations
+		// Each attachment annotation uses 2 objects (filespec + annot),
+		// plus the embedded file stream is handled in putAttachments.
+		objNum += 2 + len(p.links) + len(p.attachAnnotations)
 	}
 
 	// Build page pointer → object number map for resolving internal link anchors.
@@ -166,7 +177,9 @@ func (d *Document) putPages(w *pdfcore.Writer) []int {
 	}
 
 	for i, p := range d.pages {
-		numAnnots := len(p.links)
+		numLinkAnnots := len(p.links)
+		numAttachAnnots := len(p.attachAnnotations)
+		numAnnots := numLinkAnnots + numAttachAnnots
 		contentObj := pageObjNums[i] + 1
 
 		// Page dictionary
@@ -241,6 +254,33 @@ func (d *Document) putPages(w *pdfcore.Writer) []int {
 				}
 			}
 
+			w.Put(">>")
+			w.EndObj()
+		}
+
+		// File attachment annotation objects
+		for _, aa := range p.attachAnnotations {
+			w.NewObj()
+
+			x1 := aa.x * k
+			y1 := (p.h - (aa.y + aa.h)) * k
+			x2 := (aa.x + aa.w) * k
+			y2 := (p.h - aa.y) * k
+
+			w.Put("<<")
+			w.Put("/Type /Annot")
+			w.Put("/Subtype /FileAttachment")
+			w.Putf("/Rect [%.2f %.2f %.2f %.2f]", x1, y1, x2, y2)
+			w.Put("/Border [0 0 0]")
+			if aa.attachment.Description != "" {
+				w.Putf("/Contents %s", pdfString(aa.attachment.Description))
+			}
+			if aa.attachment.Filename != "" {
+				w.Putf("/T %s", pdfString(aa.attachment.Filename))
+			}
+			if aa.attachment.objNum > 0 {
+				w.Putf("/FS %d 0 R", aa.attachment.objNum)
+			}
 			w.Put(">>")
 			w.EndObj()
 		}
@@ -514,9 +554,86 @@ func (d *Document) putExtGStates(w *pdfcore.Writer) {
 		w.Put("/Type /ExtGState")
 		w.Putf("/ca %.3f", ae.alpha) // fill opacity
 		w.Putf("/CA %.3f", ae.alpha) // stroke opacity
+		if ae.blendMode != "" && ae.blendMode != "Normal" {
+			w.Putf("/BM /%s", ae.blendMode)
+		}
 		w.Put(">>")
 		w.EndObj()
 	}
+}
+
+// putLayers writes OCG (Optional Content Group) dictionaries for layers.
+func (d *Document) putLayers(w *pdfcore.Writer) {
+	for i := range d.layers {
+		n := w.NewObj()
+		d.layers[i].objNum = n
+		w.Put("<<")
+		w.Put("/Type /OCG")
+		w.Putf("/Name %s", pdfString(d.layers[i].name))
+		w.Put(">>")
+		w.EndObj()
+	}
+}
+
+// putSpotColors writes Separation color space objects for spot colors.
+func (d *Document) putSpotColors(w *pdfcore.Writer) {
+	for i := range d.spotColors {
+		sc := &d.spotColors[i]
+		n := w.NewObj()
+		sc.objNum = n
+		w.Putf("[/Separation /%s", strings.ReplaceAll(sc.name, " ", "#20"))
+		w.Put("/DeviceCMYK <<")
+		w.Put("/Range [0 1 0 1 0 1 0 1] /C0 [0 0 0 0]")
+		w.Putf("/C1 [%.3f %.3f %.3f %.3f]", sc.c, sc.m, sc.y, sc.k)
+		w.Put("/FunctionType 2 /Domain [0 1] /N 1>>]")
+		w.EndObj()
+	}
+}
+
+// putAttachments writes embedded file objects and filespec dictionaries for
+// both document-level and annotation-level attachments. Returns object
+// numbers of document-level filespec objects (for the catalog name tree).
+func (d *Document) putAttachments(w *pdfcore.Writer) []int {
+	var docFilespecObjs []int
+
+	// Helper to write a single attachment and return its filespec objNum.
+	writeAttachment := func(a *Attachment) int {
+		// 1. Embedded file stream (compressed)
+		streamObj := w.NewObj()
+		w.Putf("<</Type /EmbeddedFile /Length %d>>", len(a.Content))
+		w.PutStream(a.Content)
+		w.EndObj()
+
+		// 2. Filespec dictionary
+		fsObj := w.NewObj()
+		w.Put("<<")
+		w.Put("/Type /Filespec")
+		w.Putf("/F %s", pdfString(a.Filename))
+		w.Putf("/UF %s", pdfString(a.Filename))
+		w.Putf("/EF <</F %d 0 R>>", streamObj)
+		if a.Description != "" {
+			w.Putf("/Desc %s", pdfString(a.Description))
+		}
+		w.Put(">>")
+		w.EndObj()
+		a.objNum = fsObj
+		return fsObj
+	}
+
+	// Document-level attachments
+	for i := range d.attachments {
+		obj := writeAttachment(&d.attachments[i])
+		docFilespecObjs = append(docFilespecObjs, obj)
+	}
+
+	// Page-level attachment annotations
+	for _, p := range d.pages {
+		for j := range p.attachAnnotations {
+			writeAttachment(&p.attachAnnotations[j].attachment)
+		}
+	}
+
+	return docFilespecObjs
 }
 
 // putGradients writes shading objects for all registered gradients.
@@ -816,6 +933,26 @@ func (d *Document) putResourceDict(w *pdfcore.Writer) {
 		w.Put(s)
 	}
 
+	// Layer (OCG) properties
+	if len(d.layers) > 0 {
+		s := "/Properties <<"
+		for i, l := range d.layers {
+			s += fmt.Sprintf(" /OC%d %d 0 R", i, l.objNum)
+		}
+		s += " >>"
+		w.Put(s)
+	}
+
+	// Spot color space references
+	if len(d.spotColors) > 0 {
+		s := "/ColorSpace <<"
+		for i, sc := range d.spotColors {
+			s += fmt.Sprintf(" /CS%d %d 0 R", i+1, sc.objNum)
+		}
+		s += " >>"
+		w.Put(s)
+	}
+
 	w.Put(">>")
 	w.Put("endobj")
 }
@@ -1061,7 +1198,7 @@ func (d *Document) putStructTree(w *pdfcore.Writer, pageObjNums []int) int {
 	return rootObjNum
 }
 
-func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootObj int, fieldObjNums []int, metadataObjNum, outputIntentObjNum, structTreeRootObj, jsObjNum, xmpObjNum int) int {
+func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootObj int, fieldObjNums []int, metadataObjNum, outputIntentObjNum, structTreeRootObj, jsObjNum, xmpObjNum int, attachFilespecObjs []int) int {
 	n := w.NewObj()
 	w.Put("<<")
 	w.Put("/Type /Catalog")
@@ -1105,9 +1242,45 @@ func (d *Document) putCatalog(w *pdfcore.Writer, pageObjNums []int, outlineRootO
 		w.Put(fields)
 	}
 
-	// JavaScript names dictionary
-	if jsObjNum > 0 {
-		w.Putf("/Names <</JavaScript %d 0 R>>", jsObjNum)
+	// Names dictionary (JavaScript + embedded files)
+	hasJS := jsObjNum > 0
+	hasAttach := len(attachFilespecObjs) > 0
+	if hasJS || hasAttach {
+		names := "/Names <<"
+		if hasJS {
+			names += fmt.Sprintf("/JavaScript %d 0 R", jsObjNum)
+		}
+		if hasAttach {
+			names += " /EmbeddedFiles <</Names ["
+			for i, obj := range attachFilespecObjs {
+				names += fmt.Sprintf(" (Attachment%d) %d 0 R", i+1, obj)
+			}
+			names += "]>>"
+		}
+		names += ">>"
+		w.Put(names)
+	}
+
+	// Layer (OCG) properties
+	if len(d.layers) > 0 {
+		all := ""
+		off := ""
+		for i, l := range d.layers {
+			if i > 0 {
+				all += " "
+			}
+			all += fmt.Sprintf("%d 0 R", l.objNum)
+			if !l.visible {
+				if off != "" {
+					off += " "
+				}
+				off += fmt.Sprintf("%d 0 R", l.objNum)
+			}
+		}
+		w.Putf("/OCProperties <</OCGs [%s] /D <</OFF [%s] /Order [%s]>>>>", all, off, all)
+		if d.openLayerPane {
+			w.Put("/PageMode /UseOC")
+		}
 	}
 
 	// PDF/A: metadata, output intents, and mark info.
