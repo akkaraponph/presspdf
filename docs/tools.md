@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-folio.png" alt="Folio" width="120">
+</p>
+
 # PDF Tools
 
 Folio includes pure Go tools for manipulating existing PDF files. These work with any valid PDF — not just files created by Folio. No external binaries required.

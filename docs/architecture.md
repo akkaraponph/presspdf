@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-folio.png" alt="Folio" width="120">
+</p>
+
 # Architecture
 
 This guide is for contributors and anyone curious about how Folio works internally.

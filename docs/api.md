@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-folio.png" alt="Folio" width="120">
+</p>
+
 # Folio API Reference
 
 Complete reference for the public API. All types and functions are in the `folio` package unless noted otherwise.
@@ -300,6 +304,18 @@ func (p *Page) TextRotatedAt(x, y, angleDeg float64, text string)
 ```
 
 Always wrap transforms in `TransformBegin()`/`TransformEnd()` to restore graphics state.
+
+### Layout Helpers
+
+```go
+func (p *Page) Spacer(h float64)
+func (p *Page) PageBreakIfNeeded(h float64) bool
+func (p *Page) KeepTogether(fn func())
+func (p *Page) Paragraph(w, h float64, text, align string)
+func (p *Page) Stack(spacing float64, blocks ...func())
+```
+
+`Spacer` advances the cursor vertically. `PageBreakIfNeeded` checks remaining space. `KeepTogether` ensures a block stays on one page. `Paragraph` is a convenience for aligned multi-line text. `Stack` arranges blocks vertically with spacing.
 
 ### Links
 

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-folio.png" alt="Folio" width="120">
+</p>
+
 # Layout
 
 ## Page sizes
@@ -105,6 +109,61 @@ cols.End()
 ```
 
 `Begin()` sets the page width to a single column. `NextColumn()` moves the cursor to the next column. `End()` restores the full page width.
+
+## Layout helpers
+
+### Spacer
+
+Add vertical space, triggering a page break if needed:
+
+```go
+page.Spacer(10)  // 10mm vertical gap
+```
+
+### PageBreakIfNeeded
+
+Ensure a minimum amount of space remains on the current page:
+
+```go
+if page.PageBreakIfNeeded(50) {
+    // A new page was created because < 50mm remained
+}
+```
+
+### KeepTogether
+
+Guarantee a block of content stays on a single page:
+
+```go
+page.KeepTogether(func() {
+    page.Cell(0, 8, "Section Title", "", "L", false)
+    page.MultiCell(0, 5, paragraphText, "", "L", false)
+})
+```
+
+Folio does a measurement pass first. If the content fits, it draws on the current page. Otherwise it forces a page break before drawing.
+
+### Paragraph
+
+A convenience for multi-line text blocks with consistent spacing:
+
+```go
+page.Paragraph(170, 6, longText, "J")  // width, lineH, text, align
+```
+
+### Stack
+
+Arrange blocks vertically with spacing:
+
+```go
+page.Stack(8, func() {
+    page.Cell(0, 8, "Title", "", "L", false)
+}, func() {
+    page.MultiCell(0, 5, body, "", "L", false)
+}, func() {
+    page.Cell(0, 8, "Footer", "", "L", false)
+})
+```
 
 ## Page templates
 

@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Folio - Go PDF Library</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --fg: #1a1a2e;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --border: #e2e8f0;
+    --code-bg: #0f172a;
+    --code-fg: #e2e8f0;
+    --sidebar-bg: #ffffff;
+    --card-bg: #ffffff;
+    --muted: #64748b;
+    --green: #16a34a;
+    --orange: #ea580c;
+    --purple: #7c3aed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  nav {
+    position: fixed;
+    top: 0; left: 0;
+    width: 260px;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 24px 0;
+    z-index: 10;
+  }
+  nav .logo {
+    padding: 0 24px 20px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  nav .logo span { color: var(--muted); font-weight: 400; font-size: 13px; }
+  nav a {
+    display: block;
+    padding: 6px 24px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  nav a:hover { color: var(--accent); background: var(--accent-light); }
+  nav .nav-group {
+    padding: 16px 24px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+  }
+
+  /* Main */
+  main {
+    margin-left: 260px;
+    flex: 1;
+    max-width: 860px;
+    padding: 40px 48px 80px;
+  }
+
+  h1 {
+    font-size: 36px;
+    font-weight: 800;
+    margin-bottom: 12px;
+    letter-spacing: -1px;
+  }
+  h2 {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 56px 0 16px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    letter-spacing: -0.5px;
+  }
+  h2:first-of-type { border-top: none; margin-top: 40px; }
+  h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 32px 0 10px;
+    color: var(--fg);
+  }
+  h4 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 24px 0 8px;
+    color: var(--muted);
+  }
+
+  p { margin: 0 0 14px; }
+  .subtitle {
+    font-size: 18px;
+    color: var(--muted);
+    margin-bottom: 32px;
+    line-height: 1.5;
+  }
+
+  /* Feature cards */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+    margin: 24px 0 32px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: box-shadow 0.2s;
+  }
+  .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .card h4 { margin: 0 0 6px; color: var(--fg); font-size: 15px; }
+  .card p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .card .icon { font-size: 20px; margin-bottom: 8px; display: block; }
+
+  /* Code blocks */
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 12px 0 20px;
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+  code {
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", Consolas, monospace;
+    font-size: 13px;
+  }
+  p code, li code, td code {
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #be185d;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    background: #f8fafc;
+  }
+  td code { font-size: 12.5px; }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-go { background: #dbeafe; color: #1d4ed8; }
+  .badge-pure { background: #dcfce7; color: #15803d; }
+
+  /* Separator */
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  /* Lists */
+  ul, ol { padding-left: 24px; margin: 8px 0 16px; }
+  li { margin: 4px 0; font-size: 15px; }
+
+  /* Syntax highlight keywords */
+  .kw { color: #c084fc; }
+  .fn { color: #67e8f9; }
+  .st { color: #86efac; }
+  .cm { color: #64748b; }
+  .ty { color: #fbbf24; }
+  .nu { color: #f97316; }
+
+  /* Hero install */
+  .install {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border-radius: 8px;
+    padding: 14px 20px;
+    font-size: 14px;
+    margin: 16px 0 32px;
+    display: inline-block;
+  }
+  .install .prompt { color: var(--green); }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    nav { display: none; }
+    main { margin-left: 0; padding: 24px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><img src="assets/logo-folio.png" alt="Folio" style="width:36px;height:36px;vertical-align:middle;margin-right:8px;">Folio <span>PDF for Go</span></div>
+  <a href="#getting-started">Getting Started</a>
+  <a href="#hello-world">Hello World</a>
+
+  <div class="nav-group">Document</div>
+  <a href="#document">Creating Documents</a>
+  <a href="#pages">Pages &amp; Layout</a>
+  <a href="#fonts">Fonts</a>
+  <a href="#colors">Colors &amp; State</a>
+
+  <div class="nav-group">Content</div>
+  <a href="#text">Text Drawing</a>
+  <a href="#shapes">Shapes &amp; Lines</a>
+  <a href="#images">Images</a>
+  <a href="#tables">Tables</a>
+  <a href="#complex-tables">Complex Tables</a>
+  <a href="#barcodes">Barcodes &amp; QR</a>
+  <a href="#html">HTML Rendering</a>
+  <a href="#markdown">Markdown</a>
+
+  <div class="nav-group">Advanced</div>
+  <a href="#transforms">Transforms</a>
+  <a href="#gradients">Gradients</a>
+  <a href="#templates">Templates</a>
+  <a href="#toc">Table of Contents</a>
+  <a href="#columns">Column Layout</a>
+  <a href="#layout-helpers">Layout Helpers</a>
+  <a href="#forms">Form Fields</a>
+  <a href="#security">Security</a>
+  <a href="#fluent">Fluent API</a>
+
+  <div class="nav-group">PDF Tools</div>
+  <a href="#split">Split</a>
+  <a href="#merge">Merge</a>
+  <a href="#watermark">Watermark</a>
+  <a href="#images-to-pdf">Images to PDF</a>
+  <a href="#compress">Compress</a>
+  <a href="#decrypt">Decrypt</a>
+  <a href="#convert">PDF to Image</a>
+
+  <div class="nav-group">Extras</div>
+  <a href="#thai">Thai Language</a>
+  <a href="#page-sizes">Page Sizes</a>
+  <a href="#architecture">Architecture</a>
+</nav>
+
+<main>
+
+<h1>Folio</h1>
+<p class="subtitle">
+  A layered, pure Go library for creating and manipulating PDF files.<br>
+  Zero external dependencies. Clean API. Production ready.
+</p>
+
+<span class="badge badge-go">Go 1.26+</span>
+<span class="badge badge-pure">Pure Go</span>
+
+<div class="install">
+  <span class="prompt">$</span> go get github.com/akkaraponph/folio
+</div>
+
+<div class="features">
+  <div class="card">
+    <h4>Create PDFs</h4>
+    <p>Text, shapes, images, tables, barcodes, QR codes, gradients, forms, signatures</p>
+  </div>
+  <div class="card">
+    <h4>PDF Tools</h4>
+    <p>Split, merge, watermark, compress, decrypt &mdash; all pure Go</p>
+  </div>
+  <div class="card">
+    <h4>Rich Content</h4>
+    <p>Render HTML and Markdown subsets directly to PDF pages</p>
+  </div>
+  <div class="card">
+    <h4>Complex Tables</h4>
+    <p>Colspan, rowspan, multi-line cells, per-cell styling, auto page breaks</p>
+  </div>
+  <div class="card">
+    <h4>Security</h4>
+    <p>Password protection, digital signatures, PDF/A compliance</p>
+  </div>
+  <div class="card">
+    <h4>International</h4>
+    <p>TrueType/UTF-8 fonts, Thai word segmentation, RTL-ready</p>
+  </div>
+</div>
+
+<!-- GETTING STARTED -->
+<h2 id="getting-started">Getting Started</h2>
+
+<h3 id="hello-world">Hello World</h3>
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"github.com/akkaraponph/folio"</span>
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    doc := folio.<span class="fn">New</span>()
+    doc.<span class="fn">SetTitle</span>(<span class="st">"My First PDF"</span>)
+    doc.<span class="fn">SetFont</span>(<span class="st">"helvetica"</span>, <span class="st">""</span>, <span class="nu">12</span>)
+
+    page := doc.<span class="fn">AddPage</span>(folio.A4)
+    page.<span class="fn">TextAt</span>(<span class="nu">20</span>, <span class="nu">20</span>, <span class="st">"Hello, World!"</span>)
+
+    doc.<span class="fn">Save</span>(<span class="st">"output.pdf"</span>)
+}</code></pre>
+
+<p>Coordinates use <strong>top-left origin</strong> with millimeters as the default unit. A4 is 210mm &times; 297mm.</p>
+
+<pre><code><span class="cm">// Default unit is millimeters. Other units available:</span>
+<span class="cm">// state.UnitPt (points), state.UnitCM, state.UnitInch</span>
+doc := folio.<span class="fn">New</span>(folio.<span class="fn">WithUnit</span>(folio.UnitPt))    <span class="cm">// points (1/72 inch)</span>
+doc := folio.<span class="fn">New</span>(folio.<span class="fn">WithUnit</span>(folio.UnitInch))  <span class="cm">// inches</span>
+doc := folio.<span class="fn">New</span>(folio.<span class="fn">WithUnit</span>(folio.UnitCM))    <span class="cm">// centimeters</span></code></pre>
+
+
+<!-- DOCUMENT -->
+<h2 id="document">Document</h2>
+
+<h3>Options</h3>
+<pre><code>doc := folio.<span class="fn">New</span>(
+    folio.<span class="fn">WithUnit</span>(folio.UnitMM),       <span class="cm">// measurement unit (default: mm)</span>
+    folio.<span class="fn">WithCompression</span>(<span class="kw">true</span>),       <span class="cm">// zlib compression (default: true)</span>
+    folio.<span class="fn">WithPDFA</span>(<span class="st">"1b"</span>),              <span class="cm">// PDF/A compliance ("1b" or "2b")</span>
+)</code></pre>
+
+<h3>Metadata</h3>
+<pre><code>doc.<span class="fn">SetTitle</span>(<span class="st">"Invoice #1234"</span>)
+doc.<span class="fn">SetAuthor</span>(<span class="st">"John Doe"</span>)
+doc.<span class="fn">SetSubject</span>(<span class="st">"Monthly billing"</span>)
+doc.<span class="fn">SetCreator</span>(<span class="st">"My App"</span>)</code></pre>
+
+<h3>Output</h3>
+<pre><code>doc.<span class="fn">Save</span>(<span class="st">"output.pdf"</span>)              <span class="cm">// save to file</span>
+doc.<span class="fn">WriteTo</span>(w)                      <span class="cm">// write to io.Writer</span>
+data, err := doc.<span class="fn">Bytes</span>()           <span class="cm">// get as []byte</span>
+err := doc.<span class="fn">Err</span>()                    <span class="cm">// check accumulated errors</span></code></pre>
+
+
+<!-- PAGES -->
+<h2 id="pages">Pages &amp; Layout</h2>
+<pre><code>page := doc.<span class="fn">AddPage</span>(folio.A4)
+page := doc.<span class="fn">AddPage</span>(folio.A4.<span class="fn">Landscape</span>())
+page := doc.<span class="fn">AddPage</span>(folio.Letter)
+
+doc.<span class="fn">SetMargins</span>(<span class="nu">15</span>, <span class="nu">15</span>, <span class="nu">15</span>)          <span class="cm">// left, top, right</span>
+doc.<span class="fn">SetAutoPageBreak</span>(<span class="kw">true</span>, <span class="nu">15</span>)     <span class="cm">// auto break, bottom margin</span></code></pre>
+
+<h3>Headers &amp; Footers</h3>
+<pre><code>doc.<span class="fn">SetHeaderFunc</span>(<span class="kw">func</span>(p *folio.Page) {
+    p.<span class="fn">TextAt</span>(<span class="nu">20</span>, <span class="nu">10</span>, <span class="st">"My Report"</span>)
+})
+doc.<span class="fn">SetFooterFunc</span>(<span class="kw">func</span>(p *folio.Page) {
+    p.<span class="fn">TextAt</span>(<span class="nu">100</span>, <span class="nu">-10</span>, fmt.<span class="fn">Sprintf</span>(<span class="st">"Page %d"</span>, doc.<span class="fn">PageNo</span>()))
+})</code></pre>
+
+<h3>Cursor</h3>
+<pre><code>x := page.<span class="fn">GetX</span>()
+y := page.<span class="fn">GetY</span>()
+page.<span class="fn">SetXY</span>(<span class="nu">20</span>, <span class="nu">50</span>)
+w := page.<span class="fn">Width</span>()           <span class="cm">// page width in user units</span>
+h := page.<span class="fn">Height</span>()          <span class="cm">// page height in user units</span></code></pre>
+
+
+<!-- FONTS -->
+<h2 id="fonts">Fonts</h2>
+<pre><code><span class="cm">// Core fonts (no embedding needed)</span>
+doc.<span class="fn">SetFont</span>(<span class="st">"helvetica"</span>, <span class="st">""</span>, <span class="nu">12</span>)     <span class="cm">// regular</span>
+doc.<span class="fn">SetFont</span>(<span class="st">"helvetica"</span>, <span class="st">"B"</span>, <span class="nu">14</span>)    <span class="cm">// bold</span>
+doc.<span class="fn">SetFont</span>(<span class="st">"courier"</span>, <span class="st">"I"</span>, <span class="nu">10</span>)      <span class="cm">// italic</span>
+doc.<span class="fn">SetFont</span>(<span class="st">"times"</span>, <span class="st">"BI"</span>, <span class="nu">12</span>)       <span class="cm">// bold italic</span></code></pre>
+
+<p>Core fonts: <code>helvetica</code>, <code>courier</code>, <code>times</code>, <code>zapfdingbats</code>. Aliases: <code>arial</code> &rarr; <code>helvetica</code>.</p>
+
+<h3>TrueType / UTF-8</h3>
+<pre><code><span class="cm">// From file</span>
+doc.<span class="fn">AddUTF8FontFromFile</span>(<span class="st">"myfont"</span>, <span class="st">""</span>, <span class="st">"font.ttf"</span>)
+
+<span class="cm">// From bytes</span>
+doc.<span class="fn">AddUTF8Font</span>(<span class="st">"myfont"</span>, <span class="st">"B"</span>, fontData)
+
+<span class="cm">// Built-in font packages</span>
+<span class="kw">import</span> <span class="st">"github.com/akkaraponph/folio/fonts/sarabun"</span>
+sarabun.<span class="fn">Register</span>(doc)  <span class="cm">// registers "sarabun" in all 4 styles</span></code></pre>
+
+<h3>Typography</h3>
+<pre><code>doc.<span class="fn">SetCharSpacing</span>(<span class="nu">0.5</span>)        <span class="cm">// letter spacing</span>
+doc.<span class="fn">SetWordSpacing</span>(<span class="nu">2.0</span>)        <span class="cm">// word spacing</span>
+doc.<span class="fn">SetTextRise</span>(<span class="nu">3.0</span>)           <span class="cm">// baseline shift (superscript/subscript)</span>
+doc.<span class="fn">SetUnderline</span>(<span class="kw">true</span>)
+doc.<span class="fn">SetStrikethrough</span>(<span class="kw">true</span>)</code></pre>
+
+
+<!-- COLORS -->
+<h2 id="colors">Colors &amp; Drawing State</h2>
+<pre><code>doc.<span class="fn">SetDrawColor</span>(<span class="nu">255</span>, <span class="nu">0</span>, <span class="nu">0</span>)       <span class="cm">// stroke color (red)</span>
+doc.<span class="fn">SetFillColor</span>(<span class="nu">200</span>, <span class="nu">230</span>, <span class="nu">255</span>)   <span class="cm">// fill color (light blue)</span>
+doc.<span class="fn">SetTextColor</span>(<span class="nu">0</span>, <span class="nu">0</span>, <span class="nu">128</span>)       <span class="cm">// text color (navy)</span>
+doc.<span class="fn">SetAlpha</span>(<span class="nu">0.5</span>)                  <span class="cm">// transparency 0-1</span>
+doc.<span class="fn">SetLineWidth</span>(<span class="nu">0.5</span>)              <span class="cm">// stroke width</span></code></pre>
+
+
+<!-- TEXT -->
+<h2 id="text">Text Drawing</h2>
+
+<h3>TextAt &mdash; absolute positioning</h3>
+<pre><code>page.<span class="fn">TextAt</span>(<span class="nu">20</span>, <span class="nu">30</span>, <span class="st">"Placed at exact coordinates"</span>)</code></pre>
+
+<h3>Cell &mdash; single-line box</h3>
+<pre><code><span class="cm">// Cell(width, height, text, border, align, fill, ln)</span>
+page.<span class="fn">Cell</span>(<span class="nu">80</span>, <span class="nu">8</span>, <span class="st">"Left"</span>,   <span class="st">"1"</span>, <span class="st">"L"</span>, <span class="kw">false</span>, <span class="nu">0</span>)   <span class="cm">// border all sides, left align</span>
+page.<span class="fn">Cell</span>(<span class="nu">80</span>, <span class="nu">8</span>, <span class="st">"Center"</span>, <span class="st">"1"</span>, <span class="st">"C"</span>, <span class="kw">false</span>, <span class="nu">1</span>)   <span class="cm">// ln=1: next line</span></code></pre>
+
+<table>
+  <tr><th>Parameter</th><th>Values</th></tr>
+  <tr><td><code>border</code></td><td><code>""</code> none, <code>"1"</code> all, <code>"LR"</code> left+right, etc.</td></tr>
+  <tr><td><code>align</code></td><td><code>"L"</code> left, <code>"C"</code> center, <code>"R"</code> right</td></tr>
+  <tr><td><code>ln</code></td><td><code>0</code> cursor right, <code>1</code> next line, <code>2</code> below</td></tr>
+</table>
+
+<h3>MultiCell &mdash; word-wrapped</h3>
+<pre><code>page.<span class="fn">MultiCell</span>(<span class="nu">170</span>, <span class="nu">6</span>, <span class="st">"Long text that wraps automatically..."</span>, <span class="st">""</span>, <span class="st">"J"</span>, <span class="kw">false</span>)
+<span class="cm">// align: "L", "C", "R", "J" (justified)</span>
+<span class="cm">// width 0 = extend to right margin</span></code></pre>
+
+<h3>Write &mdash; inline flow</h3>
+<pre><code>page.<span class="fn">Write</span>(<span class="nu">6</span>, <span class="st">"Normal text. "</span>)
+doc.<span class="fn">SetFontStyle</span>(<span class="st">"B"</span>)
+page.<span class="fn">Write</span>(<span class="nu">6</span>, <span class="st">"Bold text. "</span>)
+doc.<span class="fn">SetFontStyle</span>(<span class="st">""</span>)
+page.<span class="fn">Write</span>(<span class="nu">6</span>, <span class="st">"Back to normal."</span>)</code></pre>
+
+
+<!-- SHAPES -->
+<h2 id="shapes">Shapes &amp; Lines</h2>
+<pre><code>page.<span class="fn">Line</span>(<span class="nu">20</span>, <span class="nu">50</span>, <span class="nu">190</span>, <span class="nu">50</span>)
+page.<span class="fn">Rect</span>(<span class="nu">20</span>, <span class="nu">60</span>, <span class="nu">80</span>, <span class="nu">30</span>, <span class="st">"DF"</span>)          <span class="cm">// "D"=stroke, "F"=fill, "DF"=both</span>
+page.<span class="fn">Circle</span>(<span class="nu">60</span>, <span class="nu">120</span>, <span class="nu">15</span>, <span class="st">"DF"</span>)
+page.<span class="fn">Ellipse</span>(<span class="nu">120</span>, <span class="nu">120</span>, <span class="nu">30</span>, <span class="nu">15</span>, <span class="st">"D"</span>)
+page.<span class="fn">Arc</span>(<span class="nu">60</span>, <span class="nu">160</span>, <span class="nu">20</span>, <span class="nu">20</span>, <span class="nu">0</span>, <span class="nu">270</span>, <span class="st">"D"</span>)
+
+<span class="cm">// SVG path commands: M, L, H, V, C, S, Q, T, A, Z</span>
+page.<span class="fn">SVGPath</span>(<span class="nu">20</span>, <span class="nu">180</span>, <span class="nu">1.0</span>, <span class="st">"M 0 0 L 50 0 L 25 40 Z"</span>, <span class="st">"DF"</span>)
+
+<span class="cm">// Dash pattern</span>
+page.<span class="fn">SetDashPattern</span>([]<span class="ty">float64</span>{<span class="nu">3</span>, <span class="nu">2</span>}, <span class="nu">0</span>)   <span class="cm">// 3pt dash, 2pt gap</span></code></pre>
+
+
+<!-- IMAGES -->
+<h2 id="images">Images</h2>
+<pre><code>f, _ := os.<span class="fn">Open</span>(<span class="st">"photo.jpg"</span>)
+doc.<span class="fn">RegisterImage</span>(<span class="st">"photo"</span>, f)
+f.<span class="fn">Close</span>()
+
+page.<span class="fn">DrawImageRect</span>(<span class="st">"photo"</span>, <span class="nu">20</span>, <span class="nu">20</span>, <span class="nu">60</span>, <span class="nu">40</span>)  <span class="cm">// x, y, w, h</span></code></pre>
+<p>Images are deduplicated by content hash &mdash; register the same image twice and it appears only once in the PDF.</p>
+
+
+<!-- TABLES -->
+<h2 id="tables">Tables</h2>
+
+<h3>Simple Table</h3>
+<pre><code>tbl := folio.<span class="fn">NewTable</span>(doc, page)
+tbl.<span class="fn">SetWidths</span>(<span class="nu">20</span>, <span class="nu">100</span>, <span class="nu">40</span>)
+tbl.<span class="fn">SetAligns</span>(<span class="st">"C"</span>, <span class="st">"L"</span>, <span class="st">"R"</span>)
+
+tbl.<span class="fn">SetHeaderStyle</span>(folio.CellStyle{
+    FontFamily: <span class="st">"helvetica"</span>, FontStyle: <span class="st">"B"</span>, FontSize: <span class="nu">12</span>,
+    TextColor: [<span class="nu">3</span>]<span class="ty">int</span>{<span class="nu">255</span>, <span class="nu">255</span>, <span class="nu">255</span>},
+    FillColor: [<span class="nu">3</span>]<span class="ty">int</span>{<span class="nu">0</span>, <span class="nu">51</span>, <span class="nu">102</span>},
+    Fill: <span class="kw">true</span>,
+})
+
+tbl.<span class="fn">Header</span>(<span class="st">"#"</span>, <span class="st">"Product"</span>, <span class="st">"Price"</span>)
+tbl.<span class="fn">Row</span>(<span class="st">"1"</span>, <span class="st">"Widget"</span>, <span class="st">"$9.99"</span>)
+tbl.<span class="fn">Row</span>(<span class="st">"2"</span>, <span class="st">"Gadget"</span>, <span class="st">"$24.99"</span>)</code></pre>
+
+<table>
+  <tr><th>Method</th><th>Description</th></tr>
+  <tr><td><code>SetWidths(w ...float64)</code></td><td>Column widths in user units</td></tr>
+  <tr><td><code>SetAligns(a ...string)</code></td><td><code>"L"</code>, <code>"C"</code>, <code>"R"</code> per column</td></tr>
+  <tr><td><code>SetRowHeight(h)</code></td><td>Row height</td></tr>
+  <tr><td><code>SetBorder(b)</code></td><td><code>"1"</code>, <code>"LR"</code>, <code>""</code></td></tr>
+  <tr><td><code>SetHeaderStyle(s)</code></td><td>Header cell style</td></tr>
+  <tr><td><code>SetBodyStyle(s)</code></td><td>Body cell style</td></tr>
+  <tr><td><code>SetAlternateRows(even, odd)</code></td><td>Alternating row colors</td></tr>
+  <tr><td><code>SetRepeatHeader(bool)</code></td><td>Repeat header on page breaks</td></tr>
+</table>
+
+
+<!-- COMPLEX TABLES -->
+<h2 id="complex-tables">Complex Tables</h2>
+<p>Use <code>AddRow</code>/<code>AddHeader</code> + <code>Render()</code> for colspan, rowspan, multi-line wrapping, and per-cell styling.</p>
+
+<pre><code>tbl := folio.<span class="fn">NewTable</span>(doc, page)
+tbl.<span class="fn">SetWidths</span>(<span class="nu">40</span>, <span class="nu">40</span>, <span class="nu">40</span>, <span class="nu">40</span>)
+tbl.<span class="fn">SetCellPadding</span>(<span class="nu">2</span>)
+
+<span class="cm">// ColSpan: title spanning all 4 columns</span>
+tbl.<span class="fn">AddHeader</span>(folio.TableCell{Text: <span class="st">"Quarterly Report"</span>, ColSpan: <span class="nu">4</span>, Align: <span class="st">"C"</span>})
+
+<span class="cm">// Regular header row</span>
+tbl.<span class="fn">AddHeader</span>(
+    folio.TableCell{Text: <span class="st">"Region"</span>},
+    folio.TableCell{Text: <span class="st">"Q1"</span>},
+    folio.TableCell{Text: <span class="st">"Q2"</span>},
+    folio.TableCell{Text: <span class="st">"Total"</span>},
+)
+
+<span class="cm">// RowSpan: "North" spans 2 rows</span>
+tbl.<span class="fn">AddRow</span>(
+    folio.TableCell{Text: <span class="st">"North"</span>, RowSpan: <span class="nu">2</span>},
+    folio.TableCell{Text: <span class="st">"100"</span>},
+    folio.TableCell{Text: <span class="st">"150"</span>},
+    folio.TableCell{Text: <span class="st">"250"</span>},
+)
+tbl.<span class="fn">AddRow</span>(
+    <span class="cm">// column 0 occupied by rowspan</span>
+    folio.TableCell{Text: <span class="st">"200"</span>},
+    folio.TableCell{Text: <span class="st">"180"</span>},
+    folio.TableCell{Text: <span class="st">"380"</span>},
+)
+
+<span class="cm">// Per-cell styling</span>
+red := &folio.CellStyle{TextColor: [<span class="nu">3</span>]<span class="ty">int</span>{<span class="nu">255</span>, <span class="nu">0</span>, <span class="nu">0</span>}}
+tbl.<span class="fn">AddRow</span>(
+    folio.TableCell{Text: <span class="st">"Total"</span>, ColSpan: <span class="nu">3</span>, Align: <span class="st">"R"</span>},
+    folio.TableCell{Text: <span class="st">"630"</span>, Style: red},
+)
+
+tbl.<span class="fn">Render</span>()</code></pre>
+
+<h3>TableCell fields</h3>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>Text</code></td><td><code>string</code></td><td>Cell text (supports <code>\n</code>)</td></tr>
+  <tr><td><code>ColSpan</code></td><td><code>int</code></td><td>Columns to span (default 1)</td></tr>
+  <tr><td><code>RowSpan</code></td><td><code>int</code></td><td>Rows to span (default 1)</td></tr>
+  <tr><td><code>Align</code></td><td><code>string</code></td><td><code>"L"</code>, <code>"C"</code>, <code>"R"</code></td></tr>
+  <tr><td><code>Style</code></td><td><code>*CellStyle</code></td><td>Per-cell style override</td></tr>
+</table>
+
+<h3>AutoTable</h3>
+<pre><code><span class="cm">// From Go structs</span>
+at := folio.<span class="fn">AutoTableFromStructs</span>(doc, page, mySlice)
+at.<span class="fn">Render</span>()
+
+<span class="cm">// From JSON</span>
+at, _ := folio.<span class="fn">AutoTableFromJSON</span>(doc, page, jsonBytes)
+at.<span class="fn">AutoFitWidths</span>(<span class="nu">170</span>)
+at.<span class="fn">Render</span>()</code></pre>
+
+
+<!-- BARCODES -->
+<h2 id="barcodes">Barcodes &amp; QR Codes</h2>
+<pre><code>page.<span class="fn">Barcode128</span>(<span class="nu">20</span>, <span class="nu">20</span>, <span class="nu">100</span>, <span class="nu">30</span>, <span class="st">"ABC-123"</span>)
+page.<span class="fn">BarcodeEAN13</span>(<span class="nu">20</span>, <span class="nu">60</span>, <span class="nu">80</span>, <span class="nu">25</span>, <span class="st">"590123412345"</span>)  <span class="cm">// check digit auto-calculated</span>
+page.<span class="fn">QRCode</span>(<span class="nu">20</span>, <span class="nu">100</span>, <span class="nu">40</span>, <span class="st">"https://example.com"</span>, <span class="nu">1</span>)  <span class="cm">// ecLevel: 0=L 1=M 2=Q 3=H</span></code></pre>
+
+
+<!-- HTML -->
+<h2 id="html">HTML Rendering</h2>
+<pre><code>page.<span class="fn">HTML</span>(<span class="st">`
+&lt;h1&gt;Report Title&lt;/h1&gt;
+&lt;p&gt;This is a &lt;b&gt;bold&lt;/b&gt; and &lt;i&gt;italic&lt;/i&gt; paragraph.&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Item one&lt;/li&gt;
+  &lt;li&gt;Item two&lt;/li&gt;
+&lt;/ul&gt;
+&lt;table&gt;
+  &lt;tr&gt;&lt;th&gt;Name&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+  &lt;tr&gt;&lt;td&gt;Alpha&lt;/td&gt;&lt;td&gt;100&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;p style="color: red; font-size: 16pt"&gt;Styled text&lt;/p&gt;
+`</span>)</code></pre>
+
+<h4>Supported tags</h4>
+<table>
+  <tr><th>Tag</th><th>Description</th></tr>
+  <tr><td><code>&lt;h1&gt;</code>-<code>&lt;h6&gt;</code></td><td>Headings (auto-sized)</td></tr>
+  <tr><td><code>&lt;p&gt;</code></td><td>Paragraph</td></tr>
+  <tr><td><code>&lt;b&gt;</code>, <code>&lt;strong&gt;</code></td><td>Bold</td></tr>
+  <tr><td><code>&lt;i&gt;</code>, <code>&lt;em&gt;</code></td><td>Italic</td></tr>
+  <tr><td><code>&lt;u&gt;</code></td><td>Underline</td></tr>
+  <tr><td><code>&lt;br&gt;</code></td><td>Line break</td></tr>
+  <tr><td><code>&lt;hr&gt;</code></td><td>Horizontal rule</td></tr>
+  <tr><td><code>&lt;ul&gt;/&lt;ol&gt;/&lt;li&gt;</code></td><td>Lists</td></tr>
+  <tr><td><code>&lt;table&gt;/&lt;tr&gt;/&lt;td&gt;</code></td><td>Tables</td></tr>
+  <tr><td><code>&lt;a href&gt;</code></td><td>Hyperlinks</td></tr>
+</table>
+
+<h4>Inline CSS</h4>
+<table>
+  <tr><th>Property</th><th>Example</th></tr>
+  <tr><td><code>color</code></td><td><code>#ff0000</code>, <code>red</code>, <code>blue</code></td></tr>
+  <tr><td><code>font-size</code></td><td><code>16pt</code>, <code>14px</code></td></tr>
+</table>
+
+
+<!-- MARKDOWN -->
+<h2 id="markdown">Markdown Rendering</h2>
+<pre><code>page.<span class="fn">Markdown</span>(<span class="st">`
+# Heading
+
+This is **bold** and *italic* text with ` + "`code`" + `.
+
+- Unordered list
+- Second item
+
+1. Ordered list
+2. Second item
+
+---
+
+[Link text](https://example.com)
+`</span>, folio.<span class="fn">WithBookmarks</span>())</code></pre>
+
+
+<!-- TRANSFORMS -->
+<h2 id="transforms">Transforms</h2>
+<pre><code>page.<span class="fn">TransformBegin</span>()
+page.<span class="fn">Rotate</span>(<span class="nu">45</span>, <span class="nu">100</span>, <span class="nu">150</span>)     <span class="cm">// angle, pivot x, pivot y</span>
+page.<span class="fn">TextAt</span>(<span class="nu">100</span>, <span class="nu">150</span>, <span class="st">"Rotated!"</span>)
+page.<span class="fn">TransformEnd</span>()
+
+page.<span class="fn">Scale</span>(<span class="nu">2</span>, <span class="nu">2</span>, <span class="nu">50</span>, <span class="nu">50</span>)        <span class="cm">// sx, sy, pivot x, pivot y</span>
+page.<span class="fn">Skew</span>(<span class="nu">15</span>, <span class="nu">0</span>, <span class="nu">50</span>, <span class="nu">50</span>)         <span class="cm">// angleX, angleY, pivot</span>
+page.<span class="fn">Translate</span>(<span class="nu">20</span>, <span class="nu">30</span>)           <span class="cm">// tx, ty</span>
+
+<span class="cm">// Shortcut for rotated text</span>
+page.<span class="fn">TextRotatedAt</span>(<span class="nu">100</span>, <span class="nu">150</span>, <span class="nu">45</span>, <span class="st">"Angled"</span>)</code></pre>
+
+
+<!-- GRADIENTS -->
+<h2 id="gradients">Gradients</h2>
+<pre><code>page.<span class="fn">LinearGradient</span>(<span class="nu">20</span>, <span class="nu">20</span>, <span class="nu">100</span>, <span class="nu">50</span>, <span class="nu">0</span>, <span class="nu">0</span>, <span class="nu">1</span>, <span class="nu">0</span>,
+    folio.GradientStop{Pos: <span class="nu">0</span>, R: <span class="nu">255</span>, G: <span class="nu">0</span>, B: <span class="nu">0</span>},
+    folio.GradientStop{Pos: <span class="nu">1</span>, R: <span class="nu">0</span>, G: <span class="nu">0</span>, B: <span class="nu">255</span>},
+)
+
+page.<span class="fn">RadialGradient</span>(<span class="nu">20</span>, <span class="nu">80</span>, <span class="nu">100</span>, <span class="nu">50</span>, <span class="nu">0.5</span>, <span class="nu">0.5</span>, <span class="nu">0.5</span>,
+    folio.GradientStop{Pos: <span class="nu">0</span>, R: <span class="nu">255</span>, G: <span class="nu">255</span>, B: <span class="nu">0</span>},
+    folio.GradientStop{Pos: <span class="nu">1</span>, R: <span class="nu">255</span>, G: <span class="nu">0</span>, B: <span class="nu">0</span>},
+)</code></pre>
+
+
+<!-- TEMPLATES -->
+<h2 id="templates">Templates</h2>
+<p>Define reusable content blocks (Form XObjects) &mdash; drawn once, stamped onto multiple pages.</p>
+<pre><code>doc.<span class="fn">BeginTemplate</span>(folio.A4)
+<span class="cm">// draw template content...</span>
+name := doc.<span class="fn">EndTemplate</span>()
+
+page.<span class="fn">UseTemplate</span>(name, <span class="nu">20</span>, <span class="nu">20</span>, <span class="nu">80</span>, <span class="nu">40</span>)</code></pre>
+
+
+<!-- TOC -->
+<h2 id="toc">Table of Contents</h2>
+<pre><code>toc := folio.<span class="fn">NewTOC</span>(doc)
+toc.<span class="fn">Add</span>(<span class="st">"Introduction"</span>, <span class="nu">0</span>, page1, <span class="nu">20</span>)
+toc.<span class="fn">Add</span>(<span class="st">"Chapter 1"</span>, <span class="nu">0</span>, page2, <span class="nu">20</span>)
+toc.<span class="fn">Add</span>(<span class="st">"Section 1.1"</span>, <span class="nu">1</span>, page2, <span class="nu">80</span>)
+
+tocPage := doc.<span class="fn">AddPage</span>(folio.A4)
+toc.<span class="fn">RenderWithPageNums</span>(tocPage, <span class="nu">8</span>, <span class="nu">0</span>)</code></pre>
+
+
+<!-- COLUMNS -->
+<h2 id="columns">Column Layout</h2>
+<pre><code>cl := folio.<span class="fn">NewColumnLayout</span>(doc, page, <span class="nu">2</span>, <span class="nu">10</span>)  <span class="cm">// 2 columns, 10mm gutter</span>
+cl.<span class="fn">Begin</span>()
+page.<span class="fn">MultiCell</span>(<span class="nu">0</span>, <span class="nu">5</span>, <span class="st">"Left column text..."</span>, <span class="st">""</span>, <span class="st">"L"</span>, <span class="kw">false</span>)
+cl.<span class="fn">NextColumn</span>()
+page.<span class="fn">MultiCell</span>(<span class="nu">0</span>, <span class="nu">5</span>, <span class="st">"Right column text..."</span>, <span class="st">""</span>, <span class="st">"L"</span>, <span class="kw">false</span>)
+cl.<span class="fn">End</span>()</code></pre>
+
+
+<!-- LAYOUT HELPERS -->
+<h2 id="layout-helpers">Layout Helpers</h2>
+<pre><code><span class="cm">// Vertical spacer (triggers page break if needed)</span>
+page.<span class="fn">Spacer</span>(<span class="nu">10</span>)
+
+<span class="cm">// Check if content fits, break if not</span>
+page.<span class="fn">PageBreakIfNeeded</span>(<span class="nu">50</span>)
+
+<span class="cm">// Keep a block on one page</span>
+page.<span class="fn">KeepTogether</span>(<span class="kw">func</span>() {
+    page.<span class="fn">Cell</span>(<span class="nu">0</span>, <span class="nu">8</span>, <span class="st">"Title"</span>, <span class="st">""</span>, <span class="st">"L"</span>, <span class="kw">false</span>, <span class="nu">1</span>)
+    page.<span class="fn">MultiCell</span>(<span class="nu">0</span>, <span class="nu">5</span>, longText, <span class="st">""</span>, <span class="st">"L"</span>, <span class="kw">false</span>)
+})
+
+<span class="cm">// Stack blocks vertically with spacing</span>
+page.<span class="fn">Stack</span>(<span class="nu">8</span>, <span class="kw">func</span>() {
+    page.<span class="fn">Cell</span>(<span class="nu">0</span>, <span class="nu">8</span>, <span class="st">"Block 1"</span>, <span class="st">""</span>, <span class="st">"L"</span>, <span class="kw">false</span>, <span class="nu">1</span>)
+}, <span class="kw">func</span>() {
+    page.<span class="fn">Cell</span>(<span class="nu">0</span>, <span class="nu">8</span>, <span class="st">"Block 2"</span>, <span class="st">""</span>, <span class="st">"L"</span>, <span class="kw">false</span>, <span class="nu">1</span>)
+})</code></pre>
+
+
+<!-- FORMS -->
+<h2 id="forms">Form Fields (AcroForms)</h2>
+<pre><code>page.<span class="fn">FormTextField</span>(<span class="st">"name"</span>, <span class="nu">20</span>, <span class="nu">40</span>, <span class="nu">100</span>, <span class="nu">10</span>,
+    folio.<span class="fn">WithDefaultValue</span>(<span class="st">"John"</span>),
+    folio.<span class="fn">WithMaxLen</span>(<span class="nu">50</span>),
+)
+page.<span class="fn">FormCheckbox</span>(<span class="st">"agree"</span>, <span class="nu">20</span>, <span class="nu">60</span>, <span class="nu">5</span>, <span class="kw">true</span>)
+page.<span class="fn">FormDropdown</span>(<span class="st">"country"</span>, <span class="nu">20</span>, <span class="nu">75</span>, <span class="nu">80</span>, <span class="nu">10</span>,
+    []<span class="ty">string</span>{<span class="st">"USA"</span>, <span class="st">"UK"</span>, <span class="st">"Thailand"</span>},
+)</code></pre>
+
+
+<!-- SECURITY -->
+<h2 id="security">Security</h2>
+
+<h3>Password Protection</h3>
+<pre><code>doc.<span class="fn">SetProtection</span>(<span class="st">"userpass"</span>, <span class="st">"ownerpass"</span>, folio.PermPrint|folio.PermCopy)</code></pre>
+
+<table>
+  <tr><th>Flag</th><th>Description</th></tr>
+  <tr><td><code>PermPrint</code></td><td>Allow printing</td></tr>
+  <tr><td><code>PermModify</code></td><td>Allow modifying</td></tr>
+  <tr><td><code>PermCopy</code></td><td>Allow copying text</td></tr>
+  <tr><td><code>PermAnnotate</code></td><td>Allow annotations</td></tr>
+  <tr><td><code>PermAll</code></td><td>All permissions</td></tr>
+</table>
+
+<h3>Digital Signatures</h3>
+<pre><code>doc.<span class="fn">Sign</span>(cert, key, page, <span class="nu">20</span>, <span class="nu">250</span>, <span class="nu">80</span>, <span class="nu">30</span>, folio.SignOptions{
+    Name:     <span class="st">"John Doe"</span>,
+    Reason:   <span class="st">"Approval"</span>,
+    Location: <span class="st">"Bangkok"</span>,
+})</code></pre>
+
+<h3>PDF/A Compliance</h3>
+<pre><code>doc := folio.<span class="fn">New</span>(folio.<span class="fn">WithPDFA</span>(<span class="st">"1b"</span>))  <span class="cm">// or "2b"</span></code></pre>
+
+
+<!-- FLUENT API -->
+<h2 id="fluent">Fluent API</h2>
+
+<h3>Text Builder</h3>
+<pre><code>page.<span class="fn">Text</span>(<span class="st">"Hello"</span>).<span class="fn">At</span>(<span class="nu">20</span>, <span class="nu">30</span>).<span class="fn">Font</span>(<span class="st">"helvetica"</span>, <span class="nu">24</span>).<span class="fn">Bold</span>().<span class="fn">Color</span>(<span class="nu">0</span>, <span class="nu">0</span>, <span class="nu">200</span>).<span class="fn">Draw</span>()</code></pre>
+
+<h3>Shape Builder</h3>
+<pre><code>page.<span class="fn">Shape</span>().<span class="fn">Rect</span>(<span class="nu">20</span>, <span class="nu">50</span>, <span class="nu">80</span>, <span class="nu">30</span>).<span class="fn">FillColor</span>(<span class="nu">200</span>, <span class="nu">230</span>, <span class="nu">255</span>).<span class="fn">FillStroke</span>().<span class="fn">Draw</span>()
+page.<span class="fn">Shape</span>().<span class="fn">Circle</span>(<span class="nu">60</span>, <span class="nu">120</span>, <span class="nu">15</span>).<span class="fn">StrokeColor</span>(<span class="nu">255</span>, <span class="nu">0</span>, <span class="nu">0</span>).<span class="fn">LineWidth</span>(<span class="nu">2</span>).<span class="fn">Draw</span>()</code></pre>
+
+
+<!-- PDF TOOLS -->
+<h2 id="split">Split PDF</h2>
+<pre><code><span class="cm">// Split every page into a separate file</span>
+paths, err := folio.<span class="fn">SplitPDF</span>(<span class="st">"report.pdf"</span>, <span class="st">"output/"</span>)
+
+<span class="cm">// Split by page ranges</span>
+paths, err := folio.<span class="fn">SplitPDF</span>(<span class="st">"report.pdf"</span>, <span class="st">"output/"</span>,
+    folio.<span class="fn">WithRanges</span>(
+        folio.PageRange{From: <span class="nu">1</span>, To: <span class="nu">5</span>},
+        folio.PageRange{From: <span class="nu">6</span>, To: <span class="nu">10</span>},
+    ),
+)</code></pre>
+
+
+<h2 id="merge">Merge PDF</h2>
+<pre><code>err := folio.<span class="fn">MergePDF</span>(<span class="st">"combined.pdf"</span>,
+    <span class="st">"chapter1.pdf"</span>,
+    <span class="st">"chapter2.pdf"</span>,
+    <span class="st">"appendix.pdf"</span>,
+)</code></pre>
+
+
+<h2 id="watermark">Watermark PDF</h2>
+
+<h3>Text Watermark</h3>
+<pre><code>folio.<span class="fn">WatermarkPDF</span>(<span class="st">"in.pdf"</span>, <span class="st">"out.pdf"</span>,
+    folio.<span class="fn">WatermarkText</span>(<span class="st">"DRAFT"</span>),
+    folio.<span class="fn">WatermarkFontSize</span>(<span class="nu">100</span>),
+    folio.<span class="fn">WatermarkOpacity</span>(<span class="nu">0.3</span>),
+    folio.<span class="fn">WatermarkRotation</span>(<span class="nu">45</span>),
+)</code></pre>
+
+<h3>Image Watermark</h3>
+<pre><code>folio.<span class="fn">WatermarkPDF</span>(<span class="st">"in.pdf"</span>, <span class="st">"out.pdf"</span>,
+    folio.<span class="fn">WatermarkImage</span>(<span class="st">"logo.png"</span>),
+    folio.<span class="fn">WatermarkOpacity</span>(<span class="nu">0.15</span>),
+    folio.<span class="fn">WatermarkScale</span>(<span class="nu">0.5</span>),
+)</code></pre>
+
+<h3>Templates</h3>
+<pre><code>folio.<span class="fn">WatermarkPDF</span>(<span class="st">"in.pdf"</span>, <span class="st">"out.pdf"</span>, folio.<span class="fn">WatermarkTemplate</span>(<span class="st">"draft"</span>))</code></pre>
+
+<table>
+  <tr><th>Template</th><th>Text</th><th>Color</th><th>Opacity</th></tr>
+  <tr><td><code>draft</code></td><td>DRAFT</td><td>Gray</td><td>30%</td></tr>
+  <tr><td><code>confidential</code></td><td>CONFIDENTIAL</td><td>Red</td><td>20%</td></tr>
+  <tr><td><code>copy</code></td><td>COPY</td><td>Gray</td><td>30%</td></tr>
+  <tr><td><code>sample</code></td><td>SAMPLE</td><td>Gray</td><td>30%</td></tr>
+  <tr><td><code>do-not-copy</code></td><td>DO NOT COPY</td><td>Red</td><td>25%</td></tr>
+</table>
+
+<h3>Pattern Mode</h3>
+<pre><code>folio.<span class="fn">WatermarkPDF</span>(<span class="st">"in.pdf"</span>, <span class="st">"out.pdf"</span>,
+    folio.<span class="fn">WatermarkText</span>(<span class="st">"INTERNAL"</span>),
+    folio.<span class="fn">WatermarkPattern</span>(<span class="nu">180</span>, <span class="nu">180</span>),
+    folio.<span class="fn">WatermarkFontSize</span>(<span class="nu">28</span>),
+    folio.<span class="fn">WatermarkOpacity</span>(<span class="nu">0.08</span>),
+)</code></pre>
+
+<h3>All Watermark Options</h3>
+<table>
+  <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>WatermarkText(s)</code></td><td>&mdash;</td><td>Text content</td></tr>
+  <tr><td><code>WatermarkImage(path)</code></td><td>&mdash;</td><td>Image file (JPEG/PNG)</td></tr>
+  <tr><td><code>WatermarkFontSize(pt)</code></td><td>72</td><td>Font size</td></tr>
+  <tr><td><code>WatermarkColor(r,g,b)</code></td><td>Gray</td><td>Text color (0-255)</td></tr>
+  <tr><td><code>WatermarkOpacity(a)</code></td><td>0.3</td><td>Transparency (0-1)</td></tr>
+  <tr><td><code>WatermarkRotation(deg)</code></td><td>45</td><td>Rotation angle</td></tr>
+  <tr><td><code>WatermarkScale(s)</code></td><td>1.0</td><td>Image scale</td></tr>
+  <tr><td><code>WatermarkPosition(x,y)</code></td><td>Center</td><td>Absolute position</td></tr>
+  <tr><td><code>WatermarkPattern(gx,gy)</code></td><td>Off</td><td>Repeat in grid</td></tr>
+  <tr><td><code>WatermarkTemplate(name)</code></td><td>&mdash;</td><td>Apply a preset</td></tr>
+</table>
+
+
+<h2 id="images-to-pdf">Images to PDF</h2>
+<pre><code><span class="cm">// Auto-fit: each page sized to its image</span>
+folio.<span class="fn">ImagesToPDF</span>(<span class="st">"album.pdf"</span>, []<span class="ty">string</span>{<span class="st">"a.jpg"</span>, <span class="st">"b.png"</span>, <span class="st">"c.jpg"</span>})
+
+<span class="cm">// Fixed A4 pages with margins</span>
+folio.<span class="fn">ImagesToPDF</span>(<span class="st">"album.pdf"</span>, images,
+    folio.<span class="fn">ImagePageSize</span>(folio.A4),
+    folio.<span class="fn">ImageMargin</span>(<span class="nu">36</span>),
+    folio.<span class="fn">ImageFit</span>(<span class="st">"fit"</span>),
+)</code></pre>
+
+<table>
+  <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>ImagePageSize(s)</code></td><td>Auto-fit</td><td>Fixed page size</td></tr>
+  <tr><td><code>ImageDPI(dpi)</code></td><td>96</td><td>Resolution for auto-fit</td></tr>
+  <tr><td><code>ImageMargin(pt)</code></td><td>0</td><td>Uniform margin</td></tr>
+  <tr><td><code>ImageFit(mode)</code></td><td><code>"fit"</code></td><td><code>"fit"</code>, <code>"fill"</code>, <code>"stretch"</code></td></tr>
+</table>
+
+
+<h2 id="compress">Compress PDF</h2>
+<pre><code><span class="cm">// Basic: FlateDecode + object deduplication</span>
+folio.<span class="fn">CompressPDF</span>(<span class="st">"input.pdf"</span>, <span class="st">"smaller.pdf"</span>)
+
+<span class="cm">// Re-encode JPEG images at lower quality</span>
+folio.<span class="fn">CompressPDF</span>(<span class="st">"photos.pdf"</span>, <span class="st">"smaller.pdf"</span>,
+    folio.<span class="fn">CompressImageQuality</span>(<span class="nu">60</span>),
+)</code></pre>
+
+<table>
+  <tr><th>Option</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>CompressImageQuality(q)</code></td><td>0 (off)</td><td>JPEG quality 1-100</td></tr>
+  <tr><td><code>CompressDedup(on)</code></td><td>true</td><td>Merge identical objects</td></tr>
+</table>
+
+
+<h2 id="decrypt">Decrypt PDF</h2>
+<pre><code><span class="cm">// Remove password protection</span>
+folio.<span class="fn">DecryptPDF</span>(<span class="st">"locked.pdf"</span>, <span class="st">"unlocked.pdf"</span>, <span class="st">"mypassword"</span>)
+
+<span class="cm">// Works with user or owner password</span>
+folio.<span class="fn">DecryptPDF</span>(<span class="st">"locked.pdf"</span>, <span class="st">"unlocked.pdf"</span>, <span class="st">"ownerpass"</span>)
+
+<span class="cm">// Unencrypted PDFs are copied as-is</span>
+folio.<span class="fn">DecryptPDF</span>(<span class="st">"plain.pdf"</span>, <span class="st">"output.pdf"</span>, <span class="st">""</span>)</code></pre>
+<p>Supports PDF Standard Security Handler V=1, R=2 (40-bit RC4).</p>
+
+
+<h2 id="convert">PDF to Image</h2>
+<pre><code><span class="cm">// Convert all pages to PNG</span>
+paths, err := folio.<span class="fn">ConvertToImages</span>(<span class="st">"doc.pdf"</span>, <span class="st">"images/"</span>)
+
+<span class="cm">// Specific pages as JPEG at 300 DPI</span>
+paths, err := folio.<span class="fn">ConvertToImages</span>(<span class="st">"doc.pdf"</span>, <span class="st">"images/"</span>,
+    folio.<span class="fn">WithFormat</span>(folio.JPEG),
+    folio.<span class="fn">WithDPI</span>(<span class="nu">300</span>),
+    folio.<span class="fn">WithPages</span>(<span class="nu">1</span>, <span class="nu">3</span>, <span class="nu">5</span>),
+)</code></pre>
+<p>Requires <code>pdftoppm</code>, <code>mutool</code>, or <code>gs</code> on PATH.</p>
+
+
+<!-- THAI -->
+<h2 id="thai">Thai Language Support</h2>
+<pre><code><span class="kw">import</span> <span class="st">"github.com/akkaraponph/folio/thai"</span>
+
+thai.<span class="fn">Setup</span>(doc)  <span class="cm">// installs word breaker for line wrapping</span>
+
+<span class="cm">// Direct segmentation</span>
+words := thai.<span class="fn">Segment</span>(<span class="st">"สวัสดีครับ"</span>)</code></pre>
+<p>Built-in dictionary-based word segmentation. No external tools.</p>
+
+
+<!-- PAGE SIZES -->
+<h2 id="page-sizes">Page Sizes</h2>
+<table>
+  <tr><th>Constant</th><th>Dimensions (mm)</th></tr>
+  <tr><td><code>A3</code></td><td>297 &times; 420</td></tr>
+  <tr><td><code>A4</code></td><td>210 &times; 297</td></tr>
+  <tr><td><code>A5</code></td><td>148 &times; 210</td></tr>
+  <tr><td><code>Letter</code></td><td>216 &times; 279</td></tr>
+  <tr><td><code>Legal</code></td><td>216 &times; 356</td></tr>
+</table>
+<pre><code>folio.A4.<span class="fn">Landscape</span>()   <span class="cm">// 297 x 210</span>
+
+<span class="cm">// Custom size</span>
+folio.PageSize{WidthPt: <span class="nu">500</span>, HeightPt: <span class="nu">300</span>}</code></pre>
+
+
+<!-- ARCHITECTURE -->
+<h2 id="architecture">Architecture</h2>
+<p>Folio uses a 4-layer architecture with clear separation of concerns:</p>
+
+<table>
+  <tr><th>Layer</th><th>Package</th><th>Responsibility</th></tr>
+  <tr><td>Public API</td><td><code>folio</code></td><td>User-facing types and functions</td></tr>
+  <tr><td>State</td><td><code>internal/state</code>, <code>internal/resources</code></td><td>Document state, font/image registries</td></tr>
+  <tr><td>Content</td><td><code>internal/content</code></td><td>PDF content stream operations</td></tr>
+  <tr><td>Core</td><td><code>internal/pdfcore</code></td><td>PDF serialization, reader/parser</td></tr>
+</table>
+
+<p>All PDF tools (split, merge, watermark, compress, decrypt) are implemented in pure Go using the <code>pdfcore</code> reader. Zero external dependencies.</p>
+
+<hr>
+<p style="color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px;">
+  Folio &mdash; Pure Go PDF library by Akkarapon Phikulsri
+</p>
+
+</main>
+
+</body>
+</html>

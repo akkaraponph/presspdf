@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-folio.png" alt="Folio" width="120">
+</p>
+
 # Text & Fonts
 
 ## Core fonts

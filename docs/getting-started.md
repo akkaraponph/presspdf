@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-folio.png" alt="Folio" width="120">
+</p>
+
 # Getting Started
 
 This guide walks you through creating your first PDF with Folio.
@@ -54,11 +58,9 @@ Folio uses a **top-left origin** with millimeters as the default unit. The point
 A4 in millimeters is 210 wide x 297 tall. You can change units:
 
 ```go
-import "github.com/akkaraponph/folio/internal/state"
-
-doc := folio.New(folio.WithUnit(state.UnitInch))  // inches
-doc := folio.New(folio.WithUnit(state.UnitPt))    // PDF points (1/72 inch)
-doc := folio.New(folio.WithUnit(state.UnitCM))    // centimeters
+doc := folio.New(folio.WithUnit(folio.UnitInch))  // inches
+doc := folio.New(folio.WithUnit(folio.UnitPt))    // PDF points (1/72 inch)
+doc := folio.New(folio.WithUnit(folio.UnitCM))    // centimeters
 ```
 
 ## Adding text
