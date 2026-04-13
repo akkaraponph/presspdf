@@ -182,6 +182,72 @@ func TestRectFill(t *testing.T) {
 	}
 }
 
+func TestRoundedRect(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+	page.RoundedRect(20, 50, 170, 100, 10, "D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Rounded rect uses moveto + lineto + curveto + stroke
+	if !strings.Contains(s, " m\n") {
+		t.Error("missing moveto operator")
+	}
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing curveto operator for rounded corners")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator")
+	}
+}
+
+func TestRoundedRectFillStroke(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFillColor(200, 220, 255)
+	page := doc.AddPage(A4)
+	page.RoundedRect(20, 50, 170, 100, 10, "DF")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing curveto for rounded corners")
+	}
+	if !strings.Contains(s, "B\n") {
+		t.Error("missing fill+stroke operator")
+	}
+}
+
+func TestRoundedRectBuilder(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+	page.Shape().RoundedRect(20, 50, 170, 100, 10).FillStroke().
+		StrokeColor(0, 0, 0).FillColor(200, 220, 255).Draw()
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing curveto for rounded corners")
+	}
+	if !strings.Contains(s, "B\n") {
+		t.Error("missing fill+stroke operator")
+	}
+}
+
 func TestFontDedup(t *testing.T) {
 	doc := New()
 	doc.SetFont("helvetica", "", 12)

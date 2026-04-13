@@ -277,6 +277,34 @@ func (p *Page) Rect(x, y, w, h float64, style string) {
 	}
 }
 
+// RoundedRect draws a rectangle with rounded corners.
+// r is the corner radius in user units. If r exceeds half the width or
+// height it is clamped automatically.
+// style: "D" (stroke), "F" (fill), "DF" or "FD" (fill and stroke).
+func (p *Page) RoundedRect(x, y, w, h, r float64, style string) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.RoundedRect(
+		state.ToPointsX(x, k),
+		state.ToPointsY(y+h, p.h, k), // bottom-left corner in PDF coords
+		w*k,
+		h*k,
+		r*k,
+	)
+	style = strings.ToUpper(style)
+	switch style {
+	case "F":
+		p.stream.Fill()
+	case "DF", "FD":
+		p.stream.FillStroke()
+	default: // "D" or ""
+		p.stream.Stroke()
+	}
+}
+
 // Circle draws a circle centered at (x, y) with radius r in user units.
 // style: "D" (stroke), "F" (fill), "DF" or "FD" (fill and stroke).
 func (p *Page) Circle(x, y, r float64, style string) {

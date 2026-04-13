@@ -128,7 +128,7 @@ func (tb *TextBuilder) Draw() {
 // optional style calls, then finalize with Draw().
 type ShapeBuilder struct {
 	page      *Page
-	shapeType string // "rect", "circle", "ellipse", "line"
+	shapeType string // "rect", "roundedrect", "circle", "ellipse", "line"
 	x, y      float64
 	w, h      float64
 	r         float64  // radius for circle
@@ -162,6 +162,17 @@ func (sb *ShapeBuilder) Rect(x, y, w, h float64) *ShapeBuilder {
 	sb.y = y
 	sb.w = w
 	sb.h = h
+	return sb
+}
+
+// RoundedRect configures a rounded rectangle at (x, y) with size (w, h) and corner radius r.
+func (sb *ShapeBuilder) RoundedRect(x, y, w, h, r float64) *ShapeBuilder {
+	sb.shapeType = "roundedrect"
+	sb.x = x
+	sb.y = y
+	sb.w = w
+	sb.h = h
+	sb.r = r
 	return sb
 }
 
@@ -263,6 +274,8 @@ func (sb *ShapeBuilder) Draw() {
 	switch sb.shapeType {
 	case "rect":
 		p.Rect(sb.x, sb.y, sb.w, sb.h, sb.style)
+	case "roundedrect":
+		p.RoundedRect(sb.x, sb.y, sb.w, sb.h, sb.r, sb.style)
 	case "circle":
 		p.Circle(sb.x, sb.y, sb.r, sb.style)
 	case "ellipse":

@@ -172,6 +172,38 @@ func (s *Stream) Rect(x, y, w, h float64) {
 	fmt.Fprintf(&s.buf, "%.2f %.2f %.2f %.2f re\n", x, y, w, h)
 }
 
+// RoundedRect emits path operators for a rectangle with rounded corners.
+// All coordinates and the radius are in PDF points (bottom-left origin).
+// The path is constructed but not painted — caller must follow with
+// Stroke(), Fill(), or FillStroke().
+func (s *Stream) RoundedRect(x, y, w, h, r float64) {
+	// Clamp radius to half the shortest side.
+	if r > w/2 {
+		r = w / 2
+	}
+	if r > h/2 {
+		r = h / 2
+	}
+	// κ = 4/3 * (√2 − 1) ≈ 0.5522847498
+	const kappa = 0.5522847498
+	k := r * kappa
+
+	// Bottom-left corner start (just above the arc).
+	s.MoveTo(x+r, y)
+	// Bottom edge → bottom-right arc.
+	s.LineTo(x+w-r, y)
+	s.CurveTo(x+w-r+k, y, x+w, y+r-k, x+w, y+r)
+	// Right edge → top-right arc.
+	s.LineTo(x+w, y+h-r)
+	s.CurveTo(x+w, y+h-r+k, x+w-r+k, y+h, x+w-r, y+h)
+	// Top edge → top-left arc.
+	s.LineTo(x+r, y+h)
+	s.CurveTo(x+r-k, y+h, x, y+h-r+k, x, y+h-r)
+	// Left edge → bottom-left arc.
+	s.LineTo(x, y+r)
+	s.CurveTo(x, y+r-k, x+r-k, y, x+r, y)
+}
+
 // ClosePath emits h (close current subpath).
 func (s *Stream) ClosePath() { s.buf.WriteString("h\n") }
 
