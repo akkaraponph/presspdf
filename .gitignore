@@ -5,13 +5,15 @@
 *.so
 *.dylib
 *.test
+showcase
 
 # Output
 *.out
 *.prof
 
-# Generated images
-examples/pdf2jpg/output/
+# Generated output
+examples/*/output/
+examples/pdf/
 
 # Dependency
 vendor/
@@ -20,6 +22,8 @@ vendor/
 .DS_Store
 
 # IDE / tools
-.claude/
+.claude/*
+!.claude/commands/
+!.claude/agents/
 .cursorrules
 .cursor/
