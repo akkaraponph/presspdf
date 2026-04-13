@@ -7020,6 +7020,185 @@ func TestCompressPDF_NonexistentInput(t *testing.T) {
 	}
 }
 
+// ---- DecryptPDF tests ----
+
+func TestDecryptPDF_UserPassword(t *testing.T) {
+	// Create an encrypted PDF with user password.
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetProtection("mypassword", "ownerpass", PermAll)
+	page := doc.AddPage(A4)
+	page.TextAt(20, 30, "Secret content here")
+
+	src := filepath.Join(t.TempDir(), "encrypted.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify it's encrypted.
+	data, _ := os.ReadFile(src)
+	if !strings.Contains(string(data), "/Encrypt") {
+		t.Fatal("source PDF is not encrypted")
+	}
+
+	// Decrypt with user password.
+	out := filepath.Join(t.TempDir(), "decrypted.pdf")
+	err := DecryptPDF(src, out, "mypassword")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output is valid and not encrypted.
+	decData, _ := os.ReadFile(out)
+	s := string(decData)
+	if !strings.HasPrefix(s, "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+	if strings.Contains(s, "/Encrypt") {
+		t.Error("output should not contain /Encrypt")
+	}
+}
+
+func TestDecryptPDF_OwnerPassword(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetProtection("user123", "owner456", PermAll)
+	page := doc.AddPage(A4)
+	page.TextAt(20, 30, "Owner decryption test")
+
+	src := filepath.Join(t.TempDir(), "encrypted.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	// Decrypt with owner password.
+	out := filepath.Join(t.TempDir(), "decrypted.pdf")
+	err := DecryptPDF(src, out, "owner456")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decData, _ := os.ReadFile(out)
+	if !strings.HasPrefix(string(decData), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+}
+
+func TestDecryptPDF_EmptyUserPassword(t *testing.T) {
+	// Owner-only protection (empty user password = opens freely).
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetProtection("", "owner789", PermPrint)
+	page := doc.AddPage(A4)
+	page.TextAt(20, 30, "Owner-only protection")
+
+	src := filepath.Join(t.TempDir(), "encrypted.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	// Decrypt with empty password (user pw is empty).
+	out := filepath.Join(t.TempDir(), "decrypted.pdf")
+	err := DecryptPDF(src, out, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decData, _ := os.ReadFile(out)
+	if strings.Contains(string(decData), "/Encrypt") {
+		t.Error("output should not be encrypted")
+	}
+}
+
+func TestDecryptPDF_WrongPassword(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetProtection("correct", "owner", PermAll)
+	doc.AddPage(A4)
+
+	src := filepath.Join(t.TempDir(), "encrypted.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "decrypted.pdf")
+	err := DecryptPDF(src, out, "wrongpassword")
+	if err == nil {
+		t.Error("expected error for wrong password")
+	}
+	if !strings.Contains(err.Error(), "incorrect password") {
+		t.Errorf("expected 'incorrect password' error, got: %v", err)
+	}
+}
+
+func TestDecryptPDF_NotEncrypted(t *testing.T) {
+	// Unencrypted PDF should be copied as-is.
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+
+	src := filepath.Join(t.TempDir(), "plain.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "output.pdf")
+	err := DecryptPDF(src, out, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Output should exist and be valid.
+	decData, _ := os.ReadFile(out)
+	if !strings.HasPrefix(string(decData), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+}
+
+func TestDecryptPDF_NonexistentInput(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.pdf")
+	err := DecryptPDF("/nonexistent/file.pdf", out, "")
+	if err == nil {
+		t.Error("expected error for nonexistent input")
+	}
+}
+
+func TestDecryptPDF_RoundTrip(t *testing.T) {
+	// Create → Encrypt → Decrypt → verify structure.
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	doc.SetProtection("test", "test", PermAll)
+	page := doc.AddPage(A4)
+	page.TextAt(20, 30, "Round trip test")
+
+	src := filepath.Join(t.TempDir(), "encrypted.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "decrypted.pdf")
+	err := DecryptPDF(src, out, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The decrypted PDF should be valid and have proper structure.
+	decData, _ := os.ReadFile(out)
+	s := string(decData)
+	if !strings.HasPrefix(s, "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+	if !strings.Contains(s, "/Type /Page") {
+		t.Error("missing page object")
+	}
+	if !strings.Contains(s, "/Type /Catalog") {
+		t.Error("missing catalog")
+	}
+	if strings.Contains(s, "/Encrypt") {
+		t.Error("decrypted PDF should not have /Encrypt")
+	}
+}
+
 func TestCompressPDF_SplitThenCompress(t *testing.T) {
 	// Create a multi-page PDF, split, then compress a part.
 	doc := New()

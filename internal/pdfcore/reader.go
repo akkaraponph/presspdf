@@ -1096,6 +1096,26 @@ func (s *scanner) readStreamData(dict map[string]interface{}, r *Reader) ([]byte
 	return result, nil
 }
 
+// XrefEntry returns the xref entry for a given object number, or nil.
+func (r *Reader) XrefEntry(num int) *XrefInfo {
+	e, ok := r.xref[num]
+	if !ok {
+		return nil
+	}
+	return &XrefInfo{Gen: e.gen}
+}
+
+// XrefInfo holds exported xref metadata for an object.
+type XrefInfo struct {
+	Gen int
+}
+
+// ToInt converts a PDF numeric value to int.
+func ToInt(v interface{}) int { return toInt(v) }
+
+// ToDict converts a parsed PDF value to a dictionary.
+func ToDict(v interface{}) map[string]interface{} { return toDict(v) }
+
 // ---- helpers ----
 
 func toInt(v interface{}) int {

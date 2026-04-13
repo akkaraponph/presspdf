@@ -194,6 +194,37 @@ err := folio.ImagesToPDF("hires.pdf", images, folio.ImageDPI(300))
 
 ---
 
+## Decrypt PDF
+
+Remove password protection from an encrypted PDF. Pure Go — no external tools required.
+
+```go
+// Decrypt with user password.
+err := folio.DecryptPDF("locked.pdf", "unlocked.pdf", "mypassword")
+
+// Decrypt with owner password.
+err := folio.DecryptPDF("locked.pdf", "unlocked.pdf", "ownerpass")
+
+// Not encrypted — just copies the file.
+err := folio.DecryptPDF("plain.pdf", "output.pdf", "")
+```
+
+### What it does
+
+1. **Password verification** — tries the password as user password first, then as owner password.
+2. **Stream decryption** — decrypts all streams and strings using per-object RC4 keys derived from the file encryption key.
+3. **Clean output** — writes a new PDF without the `/Encrypt` dictionary or file ID, producing a fully unprotected file.
+
+### Supported encryption
+
+| Version | Revision | Algorithm | Key Length |
+|---------|----------|-----------|------------|
+| V=1 | R=2 | RC4 | 40-bit |
+
+This matches the encryption produced by `SetProtection()`. Higher encryption versions (V=2/V=4, AES-128/256) are not yet supported.
+
+---
+
 ## Compress PDF
 
 Rewrite a PDF with compressed streams and optional image quality reduction. Pure Go — no external tools required.

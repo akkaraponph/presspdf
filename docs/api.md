@@ -520,6 +520,27 @@ folio.ImagesToPDF("album.pdf", images,
 )
 ```
 
+### Decrypt PDF
+
+```go
+func DecryptPDF(inputPath, outputPath, password string) error
+```
+
+Removes password protection from an encrypted PDF. The password can be either the user or owner password. If the PDF is not encrypted, it is copied as-is.
+
+Supports PDF Standard Security Handler V=1, R=2 (40-bit RC4).
+
+```go
+// Decrypt with user password.
+folio.DecryptPDF("locked.pdf", "unlocked.pdf", "mypassword")
+
+// Decrypt with owner password.
+folio.DecryptPDF("locked.pdf", "unlocked.pdf", "ownerpass")
+
+// Unencrypted PDF — copied without changes.
+folio.DecryptPDF("plain.pdf", "output.pdf", "")
+```
+
 ### Compress PDF
 
 ```go
