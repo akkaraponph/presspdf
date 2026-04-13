@@ -232,8 +232,9 @@ func demoTOC() error {
 		p.MultiCell(170, 6, "Content for: "+s.title, "", "L", false)
 	}
 
-	// Render the TOC on the first page
+	// Render the TOC on the first page, below the title
 	doc.SetFont("helvetica", "", 11)
+	tocPage.SetXY(20, 35)
 	toc.RenderWithPageNums(tocPage, 6, -1)
 
 	return save(doc, "05_toc")

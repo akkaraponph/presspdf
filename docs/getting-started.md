@@ -207,3 +207,5 @@ if doc.Err() != nil {
 - [Tables](tables.md) — styled tables, auto-tables from structs
 - [Drawing](drawing.md) — circles, SVG paths, transforms, gradients
 - [Rich Content](rich-content.md) — render HTML and Markdown directly
+- [Security](security.md) — encryption, signatures, forms, PDF/A
+- [PDF Tools](tools.md) — split, merge, watermark, convert (pure Go)

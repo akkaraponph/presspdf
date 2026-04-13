@@ -395,6 +395,107 @@ func (cl *ColumnLayout) End()
 
 ---
 
+## PDF Tools (Pure Go — No External Dependencies)
+
+### Split PDF
+
+```go
+func SplitPDF(pdfPath, outputDir string, opts ...SplitOption) ([]string, error)
+```
+
+Splits a PDF into multiple files. Returns paths of generated files.
+
+Options:
+- `WithRanges(ranges ...PageRange)` — split by custom page ranges (default: one file per page)
+
+```go
+// Split every page into a separate file.
+paths, err := folio.SplitPDF("input.pdf", "output/")
+
+// Split by custom ranges.
+paths, err := folio.SplitPDF("input.pdf", "output/",
+    folio.WithRanges(
+        folio.PageRange{From: 1, To: 3},
+        folio.PageRange{From: 4, To: 10},
+    ),
+)
+```
+
+### Merge PDF
+
+```go
+func MergePDF(outputPath string, inputPaths ...string) error
+```
+
+Combines multiple PDFs into a single file. Pages appear in input order.
+
+```go
+err := folio.MergePDF("combined.pdf", "doc1.pdf", "doc2.pdf", "doc3.pdf")
+```
+
+### Watermark PDF
+
+```go
+func WatermarkPDF(inputPath, outputPath string, opts ...WatermarkOption) error
+```
+
+Adds a watermark (text or image) to every page of an existing PDF.
+
+**Text options:**
+- `WatermarkText(text string)` — watermark text content
+- `WatermarkFontSize(size float64)` — font size (default: 72)
+- `WatermarkColor(r, g, b int)` — text color RGB 0-255 (default: gray)
+
+**Image options:**
+- `WatermarkImage(path string)` — path to JPEG or PNG image
+- `WatermarkScale(scale float64)` — image scale factor (default: 1.0)
+
+**General options:**
+- `WatermarkOpacity(alpha float64)` — transparency 0-1 (default: 0.3)
+- `WatermarkRotation(degrees float64)` — rotation angle (default: 45)
+- `WatermarkCenter()` — center on page (default)
+- `WatermarkPosition(x, y float64)` — absolute position in points
+- `WatermarkPattern(gapX, gapY float64)` — repeat across page in a grid
+
+**Templates** (presets that configure multiple options):
+- `WatermarkTemplate("draft")` — gray "DRAFT", 45°, 30% opacity
+- `WatermarkTemplate("confidential")` — red "CONFIDENTIAL", 45°, 20% opacity
+- `WatermarkTemplate("copy")` — gray "COPY", 45°, 30% opacity
+- `WatermarkTemplate("sample")` — gray "SAMPLE", 45°, 30% opacity
+- `WatermarkTemplate("do-not-copy")` — red "DO NOT COPY", 45°, 25% opacity
+
+Templates can be combined with other options to override individual settings.
+
+```go
+// Template watermark.
+folio.WatermarkPDF("in.pdf", "out.pdf", folio.WatermarkTemplate("draft"))
+
+// Custom text watermark with pattern.
+folio.WatermarkPDF("in.pdf", "out.pdf",
+    folio.WatermarkText("INTERNAL"),
+    folio.WatermarkPattern(200, 200),
+    folio.WatermarkFontSize(36),
+    folio.WatermarkOpacity(0.1),
+    folio.WatermarkColor(200, 0, 0),
+)
+
+// Image watermark.
+folio.WatermarkPDF("in.pdf", "out.pdf",
+    folio.WatermarkImage("logo.png"),
+    folio.WatermarkOpacity(0.15),
+    folio.WatermarkScale(0.5),
+)
+
+// Template + override.
+folio.WatermarkPDF("in.pdf", "out.pdf",
+    folio.WatermarkTemplate("confidential"),
+    folio.WatermarkOpacity(0.5),
+    folio.WatermarkRotation(30),
+)
+```
+
+---
+
 ## PDF-to-Image Conversion
 
 ```go

@@ -6371,3 +6371,382 @@ func TestConvert_NonexistentFile(t *testing.T) {
 		t.Error("expected error for nonexistent file")
 	}
 }
+
+// --- Split PDF tests (pure Go, no external tools) ---
+
+func TestSplitPDF_AllPages(t *testing.T) {
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	paths, err := SplitPDF(pdf, outDir)
+	if err != nil {
+		t.Fatalf("SplitPDF: %v", err)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("expected 3 files, got %d", len(paths))
+	}
+	for _, p := range paths {
+		if !strings.HasSuffix(p, ".pdf") {
+			t.Errorf("expected .pdf file, got %s", p)
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Errorf("stat %s: %v", p, err)
+		} else if info.Size() == 0 {
+			t.Errorf("file %s is empty", p)
+		}
+	}
+}
+
+func TestSplitPDF_WithRanges(t *testing.T) {
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	paths, err := SplitPDF(pdf, outDir,
+		WithRanges(
+			PageRange{From: 1, To: 1},
+			PageRange{From: 2, To: 3},
+		),
+	)
+	if err != nil {
+		t.Fatalf("SplitPDF with ranges: %v", err)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(paths))
+	}
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Errorf("stat %s: %v", p, err)
+		} else if info.Size() == 0 {
+			t.Errorf("file %s is empty", p)
+		}
+	}
+}
+
+func TestSplitPDF_SinglePageRange(t *testing.T) {
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	paths, err := SplitPDF(pdf, outDir,
+		WithRanges(PageRange{From: 2, To: 2}),
+	)
+	if err != nil {
+		t.Fatalf("SplitPDF single page range: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(paths))
+	}
+}
+
+func TestSplitPDF_NonexistentFile(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "out")
+	_, err := SplitPDF("/nonexistent/file.pdf", outDir)
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestSplitPDF_InvalidRange(t *testing.T) {
+	pdf := createTestPDF(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	_, err := SplitPDF(pdf, outDir,
+		WithRanges(PageRange{From: 0, To: 1}),
+	)
+	if err == nil {
+		t.Error("expected error for invalid range (From=0)")
+	}
+
+	_, err = SplitPDF(pdf, outDir,
+		WithRanges(PageRange{From: 1, To: 99}),
+	)
+	if err == nil {
+		t.Error("expected error for out-of-bounds range")
+	}
+}
+
+func TestSplitPDF_RoundTrip(t *testing.T) {
+	// Split a PDF, then split one of the results again.
+	pdf := createTestPDF(t)
+	dir1 := filepath.Join(t.TempDir(), "split1")
+
+	paths, err := SplitPDF(pdf, dir1)
+	if err != nil {
+		t.Fatalf("first split: %v", err)
+	}
+
+	// Split the first single-page PDF again (should produce 1 file).
+	dir2 := filepath.Join(t.TempDir(), "split2")
+	paths2, err := SplitPDF(paths[0], dir2)
+	if err != nil {
+		t.Fatalf("second split: %v", err)
+	}
+	if len(paths2) != 1 {
+		t.Fatalf("expected 1 file from re-split, got %d", len(paths2))
+	}
+	info, _ := os.Stat(paths2[0])
+	if info.Size() == 0 {
+		t.Error("re-split file is empty")
+	}
+}
+
+// --- Merge PDF tests (pure Go, no external tools) ---
+
+func TestMergePDF_TwoFiles(t *testing.T) {
+	pdf1 := createTestPDF(t) // 3 pages
+	pdf2 := createTestPDF(t) // 3 pages
+	out := filepath.Join(t.TempDir(), "merged.pdf")
+
+	if err := MergePDF(out, pdf1, pdf2); err != nil {
+		t.Fatalf("MergePDF: %v", err)
+	}
+
+	info, err := os.Stat(out)
+	if err != nil {
+		t.Fatalf("stat merged: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("merged PDF is empty")
+	}
+
+	// Verify the merged PDF can be re-split into 6 pages.
+	splitDir := filepath.Join(t.TempDir(), "split")
+	pages, err := SplitPDF(out, splitDir)
+	if err != nil {
+		t.Fatalf("split merged PDF: %v", err)
+	}
+	if len(pages) != 6 {
+		t.Fatalf("expected 6 pages from merge of 3+3, got %d", len(pages))
+	}
+}
+
+func TestMergePDF_SingleFile(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "merged.pdf")
+
+	if err := MergePDF(out, pdf); err != nil {
+		t.Fatalf("MergePDF single: %v", err)
+	}
+
+	splitDir := filepath.Join(t.TempDir(), "split")
+	pages, err := SplitPDF(out, splitDir)
+	if err != nil {
+		t.Fatalf("split merged: %v", err)
+	}
+	if len(pages) != 3 {
+		t.Fatalf("expected 3 pages, got %d", len(pages))
+	}
+}
+
+func TestMergePDF_SplitThenMerge(t *testing.T) {
+	// Split a 3-page PDF, then merge the individual pages back.
+	pdf := createTestPDF(t)
+	splitDir := filepath.Join(t.TempDir(), "split")
+
+	parts, err := SplitPDF(pdf, splitDir)
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+
+	out := filepath.Join(t.TempDir(), "reassembled.pdf")
+	if err := MergePDF(out, parts...); err != nil {
+		t.Fatalf("merge split pages: %v", err)
+	}
+
+	// Re-split to verify page count.
+	verifyDir := filepath.Join(t.TempDir(), "verify")
+	pages, err := SplitPDF(out, verifyDir)
+	if err != nil {
+		t.Fatalf("verify split: %v", err)
+	}
+	if len(pages) != 3 {
+		t.Fatalf("expected 3 pages after split+merge, got %d", len(pages))
+	}
+}
+
+func TestMergePDF_NoInputs(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "merged.pdf")
+	if err := MergePDF(out); err == nil {
+		t.Error("expected error for no inputs")
+	}
+}
+
+func TestMergePDF_NonexistentFile(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "merged.pdf")
+	if err := MergePDF(out, "/nonexistent/file.pdf"); err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+// --- Watermark PDF tests ---
+
+func TestWatermarkPDF_Text(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "watermarked.pdf")
+
+	err := WatermarkPDF(pdf, out, WatermarkText("DRAFT"))
+	if err != nil {
+		t.Fatalf("WatermarkPDF text: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+
+	// Verify the result can be re-split (valid PDF).
+	splitDir := filepath.Join(t.TempDir(), "split")
+	pages, err := SplitPDF(out, splitDir)
+	if err != nil {
+		t.Fatalf("split watermarked: %v", err)
+	}
+	if len(pages) != 3 {
+		t.Fatalf("expected 3 pages, got %d", len(pages))
+	}
+}
+
+func TestWatermarkPDF_Template(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+
+	err := WatermarkPDF(pdf, out, WatermarkTemplate("confidential"))
+	if err != nil {
+		t.Fatalf("WatermarkPDF template: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+}
+
+func TestWatermarkPDF_Pattern(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+
+	err := WatermarkPDF(pdf, out,
+		WatermarkText("COPY"),
+		WatermarkPattern(150, 150),
+		WatermarkFontSize(36),
+		WatermarkOpacity(0.15),
+	)
+	if err != nil {
+		t.Fatalf("WatermarkPDF pattern: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+}
+
+func TestWatermarkPDF_CustomPosition(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+
+	err := WatermarkPDF(pdf, out,
+		WatermarkText("TOP-RIGHT"),
+		WatermarkPosition(500, 800),
+		WatermarkRotation(0),
+		WatermarkFontSize(24),
+		WatermarkColor(255, 0, 0),
+	)
+	if err != nil {
+		t.Fatalf("WatermarkPDF position: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+}
+
+func TestWatermarkPDF_ImageJPEG(t *testing.T) {
+	pdf := createTestPDF(t)
+
+	// Create a small JPEG test image.
+	imgPath := filepath.Join(t.TempDir(), "logo.jpg")
+	img := image.NewRGBA(image.Rect(0, 0, 50, 50))
+	for y := 0; y < 50; y++ {
+		for x := 0; x < 50; x++ {
+			img.Set(x, y, image.White)
+		}
+	}
+	f, _ := os.Create(imgPath)
+	jpeg.Encode(f, img, nil)
+	f.Close()
+
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+	err := WatermarkPDF(pdf, out,
+		WatermarkImage(imgPath),
+		WatermarkOpacity(0.2),
+		WatermarkScale(0.5),
+	)
+	if err != nil {
+		t.Fatalf("WatermarkPDF image: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+}
+
+func TestWatermarkPDF_ImagePNG(t *testing.T) {
+	pdf := createTestPDF(t)
+
+	// Create a small PNG test image with alpha.
+	imgPath := filepath.Join(t.TempDir(), "logo.png")
+	img := image.NewRGBA(image.Rect(0, 0, 30, 30))
+	for y := 0; y < 30; y++ {
+		for x := 0; x < 30; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 0, G: 0, B: 0, A: 128})
+		}
+	}
+	f, _ := os.Create(imgPath)
+	png.Encode(f, img)
+	f.Close()
+
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+	err := WatermarkPDF(pdf, out, WatermarkImage(imgPath))
+	if err != nil {
+		t.Fatalf("WatermarkPDF PNG: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+}
+
+func TestWatermarkPDF_NoContent(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+
+	err := WatermarkPDF(pdf, out)
+	if err == nil {
+		t.Error("expected error when no text or image provided")
+	}
+}
+
+func TestWatermarkPDF_NonexistentInput(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+	err := WatermarkPDF("/nonexistent/file.pdf", out, WatermarkText("X"))
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+func TestWatermarkPDF_TemplateOverride(t *testing.T) {
+	pdf := createTestPDF(t)
+	out := filepath.Join(t.TempDir(), "wm.pdf")
+
+	// Use template, then override opacity and rotation.
+	err := WatermarkPDF(pdf, out,
+		WatermarkTemplate("draft"),
+		WatermarkOpacity(0.5),
+		WatermarkRotation(30),
+	)
+	if err != nil {
+		t.Fatalf("WatermarkPDF template+override: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("watermarked PDF is empty")
+	}
+}
