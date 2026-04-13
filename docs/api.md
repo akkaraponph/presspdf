@@ -494,6 +494,32 @@ folio.WatermarkPDF("in.pdf", "out.pdf",
 )
 ```
 
+### Images to PDF
+
+```go
+func ImagesToPDF(outputPath string, imagePaths []string, opts ...ImageToPDFOption) error
+```
+
+Converts JPEG/PNG images into a single PDF — one page per image.
+
+Options:
+- `ImagePageSize(size PageSize)` — fixed page size (default: auto-fit to image)
+- `ImageDPI(dpi float64)` — resolution for auto-fit sizing (default: 96)
+- `ImageMargin(margin float64)` — uniform margin in points (default: 0)
+- `ImageFit(mode string)` — `"fit"`, `"fill"`, or `"stretch"` (default: `"fit"`)
+
+```go
+// Auto-fit: each page matches its image size.
+folio.ImagesToPDF("album.pdf", []string{"a.jpg", "b.png", "c.jpg"})
+
+// Fixed A4 pages with margins.
+folio.ImagesToPDF("album.pdf", images,
+    folio.ImagePageSize(folio.A4),
+    folio.ImageMargin(36),
+    folio.ImageFit("fit"),
+)
+```
+
 ---
 
 ## PDF-to-Image Conversion

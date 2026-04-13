@@ -152,6 +152,48 @@ folio.WatermarkCenter()
 | `WatermarkPattern(gx,gy)` | Off | Repeat in grid |
 | `WatermarkTemplate(name)` | — | Apply a preset |
 
+## Images to PDF
+
+Convert JPEG and PNG images into a PDF — one page per image.
+
+```go
+// Auto-fit: each page sized to its image.
+err := folio.ImagesToPDF("album.pdf", []string{
+    "photo1.jpg",
+    "photo2.jpg",
+    "scan.png",
+})
+
+// Fixed A4 pages with margins, images scaled to fit.
+err := folio.ImagesToPDF("album.pdf", images,
+    folio.ImagePageSize(folio.A4),
+    folio.ImageMargin(36),       // 0.5 inch margin
+    folio.ImageFit("fit"),       // preserve aspect ratio
+)
+
+// High DPI (smaller pages in auto-fit mode).
+err := folio.ImagesToPDF("hires.pdf", images, folio.ImageDPI(300))
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `ImagePageSize(size)` | Auto-fit | Fixed page size (e.g. `A4`, `Letter`) |
+| `ImageDPI(dpi)` | 96 | Resolution for auto-fit page sizing |
+| `ImageMargin(pt)` | 0 | Uniform margin in points |
+| `ImageFit(mode)` | `"fit"` | Image scaling on fixed pages |
+
+### Fit modes (for fixed page sizes)
+
+| Mode | Behavior |
+|------|----------|
+| `"fit"` | Scale to fit within page, preserve aspect ratio |
+| `"fill"` | Scale to cover page, preserve aspect ratio (may crop) |
+| `"stretch"` | Stretch to fill page exactly (may distort) |
+
+---
+
 ## PDF-to-Image Conversion
 
 Convert PDF pages to PNG or JPEG images. This feature requires an external renderer on PATH.

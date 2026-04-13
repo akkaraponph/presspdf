@@ -6750,3 +6750,155 @@ func TestWatermarkPDF_TemplateOverride(t *testing.T) {
 		t.Fatal("watermarked PDF is empty")
 	}
 }
+
+// --- ImagesToPDF tests ---
+
+func createTestJPEGs(t *testing.T, count int) []string {
+	t.Helper()
+	var paths []string
+	for i := 0; i < count; i++ {
+		p := filepath.Join(t.TempDir(), fmt.Sprintf("img%d.jpg", i))
+		img := image.NewRGBA(image.Rect(0, 0, 200, 150))
+		for y := 0; y < 150; y++ {
+			for x := 0; x < 200; x++ {
+				img.Set(x, y, color.RGBA{R: uint8(i * 80), G: 100, B: 200, A: 255})
+			}
+		}
+		f, _ := os.Create(p)
+		jpeg.Encode(f, img, nil)
+		f.Close()
+		paths = append(paths, p)
+	}
+	return paths
+}
+
+func TestImagesToPDF_MultipleJPEGs(t *testing.T) {
+	imgs := createTestJPEGs(t, 3)
+	out := filepath.Join(t.TempDir(), "photos.pdf")
+
+	err := ImagesToPDF(out, imgs)
+	if err != nil {
+		t.Fatalf("ImagesToPDF: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("output PDF is empty")
+	}
+
+	// Verify page count by splitting.
+	splitDir := filepath.Join(t.TempDir(), "split")
+	pages, err := SplitPDF(out, splitDir)
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+	if len(pages) != 3 {
+		t.Fatalf("expected 3 pages, got %d", len(pages))
+	}
+}
+
+func TestImagesToPDF_PNG(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "test.png")
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 100; x++ {
+			img.Set(x, y, color.RGBA{R: 255, G: 0, B: 0, A: 200})
+		}
+	}
+	f, _ := os.Create(p)
+	png.Encode(f, img)
+	f.Close()
+
+	out := filepath.Join(t.TempDir(), "png.pdf")
+	err := ImagesToPDF(out, []string{p})
+	if err != nil {
+		t.Fatalf("ImagesToPDF PNG: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("output PDF is empty")
+	}
+}
+
+func TestImagesToPDF_FixedPageSize(t *testing.T) {
+	imgs := createTestJPEGs(t, 2)
+	out := filepath.Join(t.TempDir(), "a4.pdf")
+
+	err := ImagesToPDF(out, imgs,
+		ImagePageSize(A4),
+		ImageMargin(36),
+	)
+	if err != nil {
+		t.Fatalf("ImagesToPDF fixed size: %v", err)
+	}
+	info, _ := os.Stat(out)
+	if info.Size() == 0 {
+		t.Fatal("output PDF is empty")
+	}
+}
+
+func TestImagesToPDF_FitModes(t *testing.T) {
+	imgs := createTestJPEGs(t, 1)
+
+	for _, mode := range []string{"fit", "fill", "stretch"} {
+		out := filepath.Join(t.TempDir(), mode+".pdf")
+		err := ImagesToPDF(out, imgs,
+			ImagePageSize(A4),
+			ImageFit(mode),
+		)
+		if err != nil {
+			t.Fatalf("ImagesToPDF %s: %v", mode, err)
+		}
+		info, _ := os.Stat(out)
+		if info.Size() == 0 {
+			t.Fatalf("%s: output PDF is empty", mode)
+		}
+	}
+}
+
+func TestImagesToPDF_CustomDPI(t *testing.T) {
+	imgs := createTestJPEGs(t, 1)
+
+	out72 := filepath.Join(t.TempDir(), "72dpi.pdf")
+	err := ImagesToPDF(out72, imgs, ImageDPI(72))
+	if err != nil {
+		t.Fatalf("72 DPI: %v", err)
+	}
+
+	out300 := filepath.Join(t.TempDir(), "300dpi.pdf")
+	err = ImagesToPDF(out300, imgs, ImageDPI(300))
+	if err != nil {
+		t.Fatalf("300 DPI: %v", err)
+	}
+
+	// Higher DPI = smaller page = smaller file.
+	info72, _ := os.Stat(out72)
+	info300, _ := os.Stat(out300)
+	if info300.Size() >= info72.Size() {
+		t.Errorf("300 DPI file (%d) should be smaller than 72 DPI (%d)",
+			info300.Size(), info72.Size())
+	}
+}
+
+func TestImagesToPDF_NoImages(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "empty.pdf")
+	err := ImagesToPDF(out, nil)
+	if err == nil {
+		t.Error("expected error for no images")
+	}
+}
+
+func TestImagesToPDF_BadFormat(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "bad.pdf")
+	err := ImagesToPDF(out, []string{"file.bmp"})
+	if err == nil {
+		t.Error("expected error for unsupported format")
+	}
+}
+
+func TestImagesToPDF_NonexistentImage(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "bad.pdf")
+	err := ImagesToPDF(out, []string{"/nonexistent/photo.jpg"})
+	if err == nil {
+		t.Error("expected error for nonexistent image")
+	}
+}
