@@ -147,6 +147,13 @@ func (s *Stream) SetTextLeading(leading float64) {
 	fmt.Fprintf(&s.buf, "%.2f TL\n", leading)
 }
 
+// SetTextRendering emits the Tr operator. Common modes:
+// 0 = fill, 1 = stroke, 2 = fill+stroke, 3 = invisible,
+// 4 = fill+clip, 5 = stroke+clip, 6 = fill+stroke+clip, 7 = clip only.
+func (s *Stream) SetTextRendering(mode int) {
+	fmt.Fprintf(&s.buf, "%d Tr\n", mode)
+}
+
 // NextLine emits T* (move to start of next line).
 func (s *Stream) NextLine() { s.buf.WriteString("T*\n") }
 
@@ -162,9 +169,23 @@ func (s *Stream) LineTo(x, y float64) {
 	fmt.Fprintf(&s.buf, "%.2f %.2f l\n", x, y)
 }
 
-// CurveTo emits the c operator (cubic bezier).
+// CurveTo emits the c operator (cubic bezier with two control points).
 func (s *Stream) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 	fmt.Fprintf(&s.buf, "%.2f %.2f %.2f %.2f %.2f %.2f c\n", x1, y1, x2, y2, x3, y3)
+}
+
+// CurveToV emits the v operator (cubic Bézier where the first control point
+// is the current point). Parameters are the second control point (x2,y2)
+// and the endpoint (x3,y3).
+func (s *Stream) CurveToV(x2, y2, x3, y3 float64) {
+	fmt.Fprintf(&s.buf, "%.2f %.2f %.2f %.2f v\n", x2, y2, x3, y3)
+}
+
+// CurveToY emits the y operator (cubic Bézier where the second control point
+// coincides with the endpoint). Parameters are the first control point (x1,y1)
+// and the endpoint (x3,y3).
+func (s *Stream) CurveToY(x1, y1, x3, y3 float64) {
+	fmt.Fprintf(&s.buf, "%.2f %.2f %.2f %.2f y\n", x1, y1, x3, y3)
 }
 
 // Rect emits the re operator (rectangle).
@@ -204,6 +225,59 @@ func (s *Stream) RoundedRect(x, y, w, h, r float64) {
 	s.CurveTo(x, y+r-k, x+r-k, y, x+r, y)
 }
 
+// RoundedRectExt emits path operators for a rectangle with individually
+// rounded corners. rTL, rTR, rBR, rBL are the radii for top-left, top-right,
+// bottom-right, and bottom-left corners respectively.
+// All coordinates and radii are in PDF points (bottom-left origin).
+// The path is constructed but not painted.
+func (s *Stream) RoundedRectExt(x, y, w, h, rTL, rTR, rBR, rBL float64) {
+	const kappa = 0.5522847498
+	// Clamp radii to half the shortest side.
+	maxR := w / 2
+	if h/2 < maxR {
+		maxR = h / 2
+	}
+	if rTL > maxR {
+		rTL = maxR
+	}
+	if rTR > maxR {
+		rTR = maxR
+	}
+	if rBR > maxR {
+		rBR = maxR
+	}
+	if rBL > maxR {
+		rBL = maxR
+	}
+
+	// Start at bottom-left, just right of the BL arc.
+	s.MoveTo(x+rBL, y)
+	// Bottom edge → bottom-right arc.
+	s.LineTo(x+w-rBR, y)
+	if rBR > 0 {
+		k := rBR * kappa
+		s.CurveTo(x+w-rBR+k, y, x+w, y+rBR-k, x+w, y+rBR)
+	}
+	// Right edge → top-right arc.
+	s.LineTo(x+w, y+h-rTR)
+	if rTR > 0 {
+		k := rTR * kappa
+		s.CurveTo(x+w, y+h-rTR+k, x+w-rTR+k, y+h, x+w-rTR, y+h)
+	}
+	// Top edge → top-left arc.
+	s.LineTo(x+rTL, y+h)
+	if rTL > 0 {
+		k := rTL * kappa
+		s.CurveTo(x+rTL-k, y+h, x, y+h-rTL+k, x, y+h-rTL)
+	}
+	// Left edge → bottom-left arc.
+	s.LineTo(x, y+rBL)
+	if rBL > 0 {
+		k := rBL * kappa
+		s.CurveTo(x, y+rBL-k, x+rBL-k, y, x+rBL, y)
+	}
+}
+
 // ClosePath emits h (close current subpath).
 func (s *Stream) ClosePath() { s.buf.WriteString("h\n") }
 
@@ -212,11 +286,26 @@ func (s *Stream) ClosePath() { s.buf.WriteString("h\n") }
 // Stroke emits S (stroke the path).
 func (s *Stream) Stroke() { s.buf.WriteString("S\n") }
 
+// CloseAndStroke emits s (close and stroke the path).
+func (s *Stream) CloseAndStroke() { s.buf.WriteString("s\n") }
+
 // Fill emits f (fill the path using non-zero winding rule).
 func (s *Stream) Fill() { s.buf.WriteString("f\n") }
 
+// FillEvenOdd emits f* (fill the path using even-odd rule).
+func (s *Stream) FillEvenOdd() { s.buf.WriteString("f*\n") }
+
 // FillStroke emits B (fill then stroke).
 func (s *Stream) FillStroke() { s.buf.WriteString("B\n") }
+
+// FillStrokeEvenOdd emits B* (fill then stroke using even-odd rule).
+func (s *Stream) FillStrokeEvenOdd() { s.buf.WriteString("B*\n") }
+
+// CloseFillStroke emits b (close, fill, then stroke).
+func (s *Stream) CloseFillStroke() { s.buf.WriteString("b\n") }
+
+// CloseFillStrokeEvenOdd emits b* (close, fill, then stroke using even-odd rule).
+func (s *Stream) CloseFillStrokeEvenOdd() { s.buf.WriteString("b*\n") }
 
 // EndPath emits n (end path without filling or stroking — used after clip).
 func (s *Stream) EndPath() { s.buf.WriteString("n\n") }

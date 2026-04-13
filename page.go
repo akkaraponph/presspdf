@@ -458,6 +458,298 @@ func (p *Page) arcSegment(cx, cy, rx, ry, a1, a2 float64) {
 	p.stream.CurveTo(cp1x, cp1y, cp2x, cp2y, endX, endY)
 }
 
+// --- Path building API ---
+//
+// These methods construct a path incrementally without painting it.
+// Call DrawPath to actually stroke, fill, or both.
+
+// Point represents a 2D point in user-unit coordinates.
+type Point struct {
+	X, Y float64
+}
+
+// Pt is a convenience constructor for Point.
+func Pt(x, y float64) Point { return Point{X: x, Y: y} }
+
+// MoveTo begins a new subpath at the given point (user units, top-left origin).
+// This sets the current point without drawing anything.
+func (p *Page) MoveTo(x, y float64) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.MoveTo(state.ToPointsX(x, k), state.ToPointsY(y, p.h, k))
+}
+
+// LineTo appends a straight line segment from the current point to (x, y).
+func (p *Page) LineTo(x, y float64) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.LineTo(state.ToPointsX(x, k), state.ToPointsY(y, p.h, k))
+}
+
+// CurveTo appends a cubic Bézier curve from the current point to (x, y)
+// using control points (cx0, cy0) and (cx1, cy1).
+func (p *Page) CurveTo(cx0, cy0, cx1, cy1, x, y float64) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.CurveTo(
+		state.ToPointsX(cx0, k), state.ToPointsY(cy0, p.h, k),
+		state.ToPointsX(cx1, k), state.ToPointsY(cy1, p.h, k),
+		state.ToPointsX(x, k), state.ToPointsY(y, p.h, k),
+	)
+}
+
+// CurveToQuadratic appends a quadratic Bézier curve from the current point
+// to (x, y) using control point (cx, cy). Internally this uses the PDF v
+// operator (cubic Bézier with the first control point at the current point).
+func (p *Page) CurveToQuadratic(cx, cy, x, y float64) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.CurveToV(
+		state.ToPointsX(cx, k), state.ToPointsY(cy, p.h, k),
+		state.ToPointsX(x, k), state.ToPointsY(y, p.h, k),
+	)
+}
+
+// ClosePath closes the current subpath by drawing a straight line back
+// to the starting point (the most recent MoveTo).
+func (p *Page) ClosePath() {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	p.stream.ClosePath()
+}
+
+// DrawPath paints the current path using the given style string.
+//
+// High-level styles: "D" (stroke), "F" (fill), "DF"/"FD" (fill and stroke).
+//
+// PDF path-painting operators are also accepted directly:
+// "S" stroke, "s" close and stroke, "f" fill (nonzero winding),
+// "f*" fill (even-odd), "B" fill and stroke (nonzero), "B*" fill and
+// stroke (even-odd), "b" close+fill+stroke (nonzero),
+// "b*" close+fill+stroke (even-odd).
+func (p *Page) DrawPath(style string) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	switch strings.ToUpper(style) {
+	case "F":
+		p.stream.Fill()
+	case "F*":
+		p.stream.FillEvenOdd()
+	case "DF", "FD":
+		p.stream.FillStroke()
+	case "DF*", "FD*":
+		p.stream.FillStrokeEvenOdd()
+	default:
+		// Check lowercase operators that shouldn't be uppercased.
+		switch style {
+		case "s":
+			p.stream.CloseAndStroke()
+		case "b":
+			p.stream.CloseFillStroke()
+		case "b*":
+			p.stream.CloseFillStrokeEvenOdd()
+		default:
+			// "D", "S", "", or anything else → stroke.
+			p.stream.Stroke()
+		}
+	}
+}
+
+// --- Standalone curve methods ---
+
+// Curve draws a quadratic Bézier curve from (x0, y0) to (x1, y1) with
+// control point (cx, cy). style: "D" (stroke), "F" (fill), "DF"/"FD" (both).
+func (p *Page) Curve(x0, y0, cx, cy, x1, y1 float64, style string) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.MoveTo(state.ToPointsX(x0, k), state.ToPointsY(y0, p.h, k))
+	p.stream.CurveToV(
+		state.ToPointsX(cx, k), state.ToPointsY(cy, p.h, k),
+		state.ToPointsX(x1, k), state.ToPointsY(y1, p.h, k),
+	)
+	p.paintStyle(style)
+}
+
+// CurveCubic draws a cubic Bézier curve from (x0, y0) to (x1, y1)
+// with control points (cx0, cy0) and (cx1, cy1).
+// style: "D" (stroke), "F" (fill), "DF"/"FD" (both).
+func (p *Page) CurveCubic(x0, y0, cx0, cy0, cx1, cy1, x1, y1 float64, style string) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.MoveTo(state.ToPointsX(x0, k), state.ToPointsY(y0, p.h, k))
+	p.stream.CurveTo(
+		state.ToPointsX(cx0, k), state.ToPointsY(cy0, p.h, k),
+		state.ToPointsX(cx1, k), state.ToPointsY(cy1, p.h, k),
+		state.ToPointsX(x1, k), state.ToPointsY(y1, p.h, k),
+	)
+	p.paintStyle(style)
+}
+
+// --- Polygon and Beziergon ---
+
+// Polygon draws a closed polygon through the given points.
+// At least 3 points are required; fewer is a no-op.
+// style: "D" (stroke), "F" (fill), "DF"/"FD" (both).
+func (p *Page) Polygon(points []Point, style string) {
+	p = p.active()
+	if p.doc.err != nil || len(points) < 3 {
+		return
+	}
+	k := p.doc.k
+	p.stream.MoveTo(
+		state.ToPointsX(points[0].X, k),
+		state.ToPointsY(points[0].Y, p.h, k),
+	)
+	for _, pt := range points[1:] {
+		p.stream.LineTo(
+			state.ToPointsX(pt.X, k),
+			state.ToPointsY(pt.Y, p.h, k),
+		)
+	}
+	// Close back to the first point.
+	p.stream.LineTo(
+		state.ToPointsX(points[0].X, k),
+		state.ToPointsY(points[0].Y, p.h, k),
+	)
+	p.paintStyle(style)
+}
+
+// Beziergon draws a closed figure defined by cubic Bézier curve segments.
+// The first point is the starting point. Each subsequent group of three
+// points (control1, control2, endpoint) defines one curve segment.
+// Therefore len(points) must be 1 + 3*n where n >= 1.
+// style: "D" (stroke), "F" (fill), "DF"/"FD" (both).
+func (p *Page) Beziergon(points []Point, style string) {
+	p = p.active()
+	if p.doc.err != nil || len(points) < 4 {
+		return
+	}
+	k := p.doc.k
+	p.stream.MoveTo(
+		state.ToPointsX(points[0].X, k),
+		state.ToPointsY(points[0].Y, p.h, k),
+	)
+	pts := points[1:]
+	for len(pts) >= 3 {
+		p.stream.CurveTo(
+			state.ToPointsX(pts[0].X, k), state.ToPointsY(pts[0].Y, p.h, k),
+			state.ToPointsX(pts[1].X, k), state.ToPointsY(pts[1].Y, p.h, k),
+			state.ToPointsX(pts[2].X, k), state.ToPointsY(pts[2].Y, p.h, k),
+		)
+		pts = pts[3:]
+	}
+	p.paintStyle(style)
+}
+
+// --- ArcTo (path-based arc) ---
+
+// ArcTo appends an elliptical arc to the current path. The arc is centered
+// at (x, y) with horizontal radius rx and vertical radius ry. degRotate
+// rotates the ellipse. degStart and degEnd define the arc sweep in degrees,
+// measured counter-clockwise from the 3 o'clock position. If the arc's
+// start point differs from the current path point, a connecting line is drawn.
+//
+// Unlike Arc, this method does NOT paint the path — call DrawPath afterwards.
+func (p *Page) ArcTo(x, y, rx, ry, degRotate, degStart, degEnd float64) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	cx := state.ToPointsX(x, k)
+	cy := state.ToPointsY(y, p.h, k)
+	rxPt := rx * k
+	ryPt := ry * k
+
+	// Normalize so degStart < degEnd.
+	for degEnd < degStart {
+		degEnd += 360
+	}
+	totalAngle := degEnd - degStart
+	nSegs := int(math.Ceil(totalAngle / 60.0))
+	if nSegs < 2 {
+		nSegs = 2
+	}
+	segAngle := totalAngle / float64(nSegs) * math.Pi / 180.0
+
+	if degRotate != 0 {
+		a := -degRotate * math.Pi / 180.0
+		p.stream.SaveState()
+		p.stream.ConcatMatrix(
+			math.Cos(a), -math.Sin(a),
+			math.Sin(a), math.Cos(a),
+			cx, cy,
+		)
+		cx = 0
+		cy = 0
+	}
+
+	angle := degStart * math.Pi / 180.0
+	dtm := segAngle / 3.0
+
+	// Compute the first point on the arc.
+	a0 := cx + rxPt*math.Cos(angle)
+	b0 := cy + ryPt*math.Sin(angle)
+	c0 := -rxPt * math.Sin(angle)
+	d0 := ryPt * math.Cos(angle)
+
+	// Draw a line to the start of the arc (connects to existing path).
+	p.stream.LineTo(a0, b0)
+
+	for j := 1; j <= nSegs; j++ {
+		t := (float64(j)*segAngle + degStart*math.Pi/180.0)
+		a1 := cx + rxPt*math.Cos(t)
+		b1 := cy + ryPt*math.Sin(t)
+		c1 := -rxPt * math.Sin(t)
+		d1 := ryPt * math.Cos(t)
+		p.stream.CurveTo(
+			a0+(c0*dtm), b0+(d0*dtm),
+			a1-(c1*dtm), b1-(d1*dtm),
+			a1, b1,
+		)
+		a0, b0, c0, d0 = a1, b1, c1, d1
+	}
+
+	if degRotate != 0 {
+		p.stream.RestoreState()
+	}
+}
+
+// paintStyle is a helper that emits the appropriate path-painting operator.
+func (p *Page) paintStyle(style string) {
+	style = strings.ToUpper(style)
+	switch style {
+	case "F":
+		p.stream.Fill()
+	case "DF", "FD":
+		p.stream.FillStroke()
+	default:
+		p.stream.Stroke()
+	}
+}
+
 // SetDashPattern sets the line dash pattern for subsequent strokes.
 // dashArray contains alternating dash and gap lengths in user units.
 // phase is the offset into the pattern at which the stroke begins.
@@ -673,13 +965,17 @@ func (p *Page) RadialGradient(x, y, w, h float64, cx, cy, r float64, stops ...gr
 
 // --- Clipping ---
 
-// ClipRect sets a rectangular clipping region at (x, y) with width w and
-// height h in user units. All subsequent drawing is clipped to this
-// rectangle until TransformEnd restores the graphics state.
-// Must be called between TransformBegin and TransformEnd.
-func (p *Page) ClipRect(x, y, w, h float64) {
+// ClipRect begins a rectangular clipping operation at (x, y) with width w
+// and height h in user units. If outline is true, the rectangle border is
+// stroked. All subsequent drawing is clipped to this rectangle until
+// ClipEnd is called.
+func (p *Page) ClipRect(x, y, w, h float64, outline ...bool) {
 	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
 	k := p.doc.k
+	p.stream.SaveState()
 	p.stream.Rect(
 		state.ToPointsX(x, k),
 		state.ToPointsY(y+h, p.h, k),
@@ -687,21 +983,30 @@ func (p *Page) ClipRect(x, y, w, h float64) {
 		h*k,
 	)
 	p.stream.Clip()
-	p.stream.EndPath()
+	if len(outline) > 0 && outline[0] {
+		p.stream.Stroke()
+	} else {
+		p.stream.EndPath()
+	}
 }
 
-// ClipCircle sets a circular clipping region centered at (x, y) with
-// radius r in user units. Must be called between TransformBegin and
-// TransformEnd.
-func (p *Page) ClipCircle(x, y, r float64) {
-	p.ClipEllipse(x, y, r, r)
+// ClipCircle begins a circular clipping operation centered at (x, y) with
+// radius r in user units. If outline is true, the border is stroked.
+// Call ClipEnd to restore unclipped operations.
+func (p *Page) ClipCircle(x, y, r float64, outline ...bool) {
+	o := len(outline) > 0 && outline[0]
+	p.ClipEllipse(x, y, r, r, o)
 }
 
-// ClipEllipse sets an elliptical clipping region centered at (x, y) with
-// horizontal radius rx and vertical radius ry in user units. Must be
-// called between TransformBegin and TransformEnd.
-func (p *Page) ClipEllipse(x, y, rx, ry float64) {
+// ClipEllipse begins an elliptical clipping operation centered at (x, y)
+// with horizontal radius rx and vertical radius ry in user units.
+// If outline is true, the border is stroked.
+// Call ClipEnd to restore unclipped operations.
+func (p *Page) ClipEllipse(x, y, rx, ry float64, outline ...bool) {
 	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
 	k := p.doc.k
 	cx := state.ToPointsX(x, k)
 	cy := state.ToPointsY(y, p.h, k)
@@ -712,6 +1017,7 @@ func (p *Page) ClipEllipse(x, y, rx, ry float64) {
 	kx := rxPt * kappa
 	ky := ryPt * kappa
 
+	p.stream.SaveState()
 	p.stream.MoveTo(cx+rxPt, cy)
 	p.stream.CurveTo(cx+rxPt, cy+ky, cx+kx, cy+ryPt, cx, cy+ryPt)
 	p.stream.CurveTo(cx-kx, cy+ryPt, cx-rxPt, cy+ky, cx-rxPt, cy)
@@ -719,7 +1025,122 @@ func (p *Page) ClipEllipse(x, y, rx, ry float64) {
 	p.stream.CurveTo(cx+kx, cy-ryPt, cx+rxPt, cy-ky, cx+rxPt, cy)
 
 	p.stream.Clip()
-	p.stream.EndPath()
+	if len(outline) > 0 && outline[0] {
+		p.stream.Stroke()
+	} else {
+		p.stream.EndPath()
+	}
+}
+
+// ClipRoundedRect begins a clipping operation with a rounded rectangle
+// at (x, y) with width w, height h, and uniform corner radius r in user
+// units. If outline is true, the rectangle border is stroked with the
+// current draw color and line width. All subsequent drawing is clipped
+// to this shape until ClipEnd is called.
+func (p *Page) ClipRoundedRect(x, y, w, h, r float64, outline bool) {
+	p.ClipRoundedRectExt(x, y, w, h, r, r, r, r, outline)
+}
+
+// ClipRoundedRectExt begins a clipping operation with a rounded rectangle
+// that has independent corner radii: rTL (top-left), rTR (top-right),
+// rBR (bottom-right), rBL (bottom-left). If outline is true, the border
+// is stroked. Call ClipEnd to restore unclipped operations.
+func (p *Page) ClipRoundedRectExt(x, y, w, h, rTL, rTR, rBR, rBL float64, outline bool) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	k := p.doc.k
+	p.stream.SaveState()
+	p.stream.RoundedRectExt(
+		state.ToPointsX(x, k),
+		state.ToPointsY(y+h, p.h, k),
+		w*k, h*k,
+		rTL*k, rTR*k, rBR*k, rBL*k,
+	)
+	p.stream.Clip()
+	if outline {
+		p.stream.Stroke()
+	} else {
+		p.stream.EndPath()
+	}
+}
+
+// ClipText begins a clipping operation using text rendered at (x, y) as
+// the clip mask. The current font is used. If outline is true, the text
+// characters are stroked with the current draw color. All subsequent
+// drawing is clipped to the text glyphs until ClipEnd is called.
+func (p *Page) ClipText(x, y float64, text string, outline bool) {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	fe := p.effectiveFontEntry()
+	if fe == nil {
+		p.doc.err = fmt.Errorf("ClipText: no font set")
+		return
+	}
+
+	k := p.doc.k
+	xPt := state.ToPointsX(x, k)
+	fontSize := p.effectiveFontSizePt() / k
+	yPt := state.ToPointsY(y+0.7*fontSize, p.h, k)
+
+	// Text rendering mode: 5 = stroke + clip, 7 = clip only.
+	mode := 7
+	if outline {
+		mode = 5
+	}
+
+	p.stream.SaveState()
+	p.stream.BeginText()
+	p.stream.SetFont("F"+fe.Index, p.effectiveFontSizePt())
+	p.stream.MoveText(xPt, yPt)
+	p.stream.SetTextRendering(mode)
+	p.emitText(fe, text)
+	p.stream.EndText()
+}
+
+// ClipPolygon begins a clipping operation within the polygon defined by
+// the given points. The polygon is automatically closed. If outline is
+// true, the polygon border is stroked. Call ClipEnd to restore unclipped
+// operations.
+func (p *Page) ClipPolygon(points []Point, outline bool) {
+	p = p.active()
+	if p.doc.err != nil || len(points) < 3 {
+		return
+	}
+	k := p.doc.k
+	p.stream.SaveState()
+	p.stream.MoveTo(
+		state.ToPointsX(points[0].X, k),
+		state.ToPointsY(points[0].Y, p.h, k),
+	)
+	for _, pt := range points[1:] {
+		p.stream.LineTo(
+			state.ToPointsX(pt.X, k),
+			state.ToPointsY(pt.Y, p.h, k),
+		)
+	}
+	p.stream.ClosePath()
+	p.stream.Clip()
+	if outline {
+		p.stream.Stroke()
+	} else {
+		p.stream.EndPath()
+	}
+}
+
+// ClipEnd ends a clipping operation that was started with ClipRect,
+// ClipRoundedRect, ClipRoundedRectExt, ClipText, ClipEllipse,
+// ClipCircle, or ClipPolygon. Each Clip* call must be balanced by
+// exactly one ClipEnd. Clipping operations can be nested.
+func (p *Page) ClipEnd() {
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	p.stream.RestoreState()
 }
 
 // --- Cell and MultiCell ---

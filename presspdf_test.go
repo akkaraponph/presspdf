@@ -60,7 +60,7 @@ func TestTextAt(t *testing.T) {
 	doc := New(WithCompression(false))
 	doc.SetFont("helvetica", "", 16)
 	page := doc.AddPage(A4)
-	page.TextAt(40, 60, "Hello Folio")
+	page.TextAt(40, 60, "Hello PressPDF")
 
 	var buf bytes.Buffer
 	_, err := doc.WriteTo(&buf)
@@ -73,7 +73,7 @@ func TestTextAt(t *testing.T) {
 	if !strings.Contains(s, "BT") {
 		t.Error("missing BT operator")
 	}
-	if !strings.Contains(s, "Hello Folio") {
+	if !strings.Contains(s, "Hello PressPDF") {
 		t.Error("missing text content")
 	}
 	if !strings.Contains(s, "Tj") {
@@ -91,7 +91,7 @@ func TestTargetAPI(t *testing.T) {
 	doc.SetFont("helvetica", "", 16)
 
 	page := doc.AddPage(A4)
-	page.TextAt(40, 60, "Hello Folio")
+	page.TextAt(40, 60, "Hello PressPDF")
 	page.Line(40, 70, 200, 70)
 
 	var buf bytes.Buffer
@@ -107,7 +107,7 @@ func TestTargetAPI(t *testing.T) {
 	if !strings.Contains(s, "/Author (Akkarapon)") {
 		t.Error("missing author")
 	}
-	if !strings.Contains(s, "Hello Folio") {
+	if !strings.Contains(s, "Hello PressPDF") {
 		t.Error("missing text")
 	}
 	// Line should have moveto/lineto/stroke
@@ -2629,6 +2629,343 @@ func TestEllipse(t *testing.T) {
 	}
 }
 
+// --- Path building API tests ---
+
+func TestPathBuildingMoveToLineTo(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.MoveTo(20, 20)
+	page.LineTo(100, 20)
+	page.LineTo(100, 100)
+	page.ClosePath()
+	page.DrawPath("D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " m\n") {
+		t.Error("missing moveto operator")
+	}
+	if strings.Count(s, " l\n") < 2 {
+		t.Error("expected at least 2 lineto operators")
+	}
+	if !strings.Contains(s, "h\n") {
+		t.Error("missing closepath operator")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator from DrawPath")
+	}
+}
+
+func TestPathBuildingCurveTo(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.MoveTo(20, 100)
+	page.CurveTo(60, 20, 140, 20, 180, 100)
+	page.DrawPath("D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing cubic bezier operator")
+	}
+}
+
+func TestPathBuildingCurveToQuadratic(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.MoveTo(20, 100)
+	page.CurveToQuadratic(100, 20, 180, 100)
+	page.DrawPath("D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " v\n") {
+		t.Error("missing v (quadratic bezier) operator")
+	}
+}
+
+func TestDrawPathStyles(t *testing.T) {
+	tests := []struct {
+		style string
+		want  string
+	}{
+		{"D", "S\n"},
+		{"F", "f\n"},
+		{"DF", "B\n"},
+		{"FD", "B\n"},
+		{"F*", "f*\n"},
+		{"s", "s\n"},
+		{"b", "b\n"},
+		{"b*", "b*\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.style, func(t *testing.T) {
+			doc := New(WithCompression(false))
+			page := doc.AddPage(A4)
+			page.MoveTo(10, 10)
+			page.LineTo(50, 10)
+			page.LineTo(50, 50)
+			page.DrawPath(tc.style)
+
+			b, err := doc.Bytes()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(b), tc.want) {
+				t.Errorf("DrawPath(%q): expected %q in output", tc.style, tc.want)
+			}
+		})
+	}
+}
+
+func TestCurve(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.Curve(20, 100, 100, 20, 180, 100, "D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " m\n") {
+		t.Error("missing moveto for Curve start")
+	}
+	if !strings.Contains(s, " v\n") {
+		t.Error("missing v operator for quadratic curve")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator")
+	}
+}
+
+func TestCurveCubic(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.CurveCubic(20, 100, 60, 20, 140, 20, 180, 100, "D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " m\n") {
+		t.Error("missing moveto for CurveCubic start")
+	}
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing c operator for cubic curve")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator")
+	}
+}
+
+func TestCurveCubicFill(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFillColor(200, 100, 50)
+	page := doc.AddPage(A4)
+
+	page.CurveCubic(20, 100, 60, 20, 140, 20, 180, 100, "F")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "f\n") {
+		t.Error("expected fill operator for CurveCubic with style F")
+	}
+}
+
+func TestPolygonTriangle(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.Polygon([]Point{
+		Pt(100, 20),
+		Pt(180, 150),
+		Pt(20, 150),
+	}, "D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " m\n") {
+		t.Error("missing moveto for polygon start")
+	}
+	// 3 lineto: point 1→2, point 2→3, point 3→back-to-0
+	if strings.Count(s, " l\n") < 3 {
+		t.Errorf("expected at least 3 lineto operators, got %d", strings.Count(s, " l\n"))
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator")
+	}
+}
+
+func TestPolygonFill(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFillColor(100, 200, 100)
+	page := doc.AddPage(A4)
+
+	page.Polygon([]Point{
+		Pt(50, 50),
+		Pt(150, 50),
+		Pt(150, 150),
+		Pt(50, 150),
+	}, "F")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "f\n") {
+		t.Error("expected fill operator for Polygon with style F")
+	}
+}
+
+func TestPolygonTooFewPoints(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	// Only 2 points — should be a no-op.
+	page.Polygon([]Point{Pt(10, 10), Pt(20, 20)}, "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No polygon operators should appear beyond the default page setup.
+	s := string(b)
+	if strings.Contains(s, "S\n") {
+		t.Error("expected no stroke for polygon with < 3 points")
+	}
+}
+
+func TestBeziergon(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	// A figure: start point + 1 curve segment (3 points) = 4 points total.
+	page.Beziergon([]Point{
+		Pt(50, 150),  // start
+		Pt(50, 50),   // control 1
+		Pt(150, 50),  // control 2
+		Pt(150, 150), // endpoint
+	}, "D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	if !strings.Contains(s, " m\n") {
+		t.Error("missing moveto for beziergon start")
+	}
+	if !strings.Contains(s, " c\n") {
+		t.Error("missing cubic bezier operator")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator")
+	}
+}
+
+func TestBeziergonTooFewPoints(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.Beziergon([]Point{Pt(10, 10), Pt(20, 20)}, "D")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if strings.Contains(s, "S\n") {
+		t.Error("expected no stroke for beziergon with < 4 points")
+	}
+}
+
+func TestArcTo(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.MoveTo(100, 100)
+	page.ArcTo(100, 100, 50, 30, 0, 0, 90)
+	page.DrawPath("D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// ArcTo emits cubic Bézier segments.
+	if strings.Count(s, " c\n") < 1 {
+		t.Error("expected at least one cubic bezier for ArcTo")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("missing stroke operator")
+	}
+}
+
+func TestArcToWithRotation(t *testing.T) {
+	doc := New(WithCompression(false))
+	page := doc.AddPage(A4)
+
+	page.MoveTo(100, 100)
+	page.ArcTo(100, 100, 50, 30, 45, 0, 180)
+	page.DrawPath("D")
+
+	var buf bytes.Buffer
+	_, err := doc.WriteTo(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+
+	// Rotation wraps arc in q/Q (save/restore graphics state).
+	if !strings.Contains(s, " cm\n") {
+		t.Error("expected cm (concat matrix) for rotated ArcTo")
+	}
+}
+
+func TestPointConstructor(t *testing.T) {
+	p := Pt(3.5, 7.2)
+	if p.X != 3.5 || p.Y != 7.2 {
+		t.Errorf("Pt(3.5, 7.2) = %v, want {3.5, 7.2}", p)
+	}
+}
+
 func TestDashPattern(t *testing.T) {
 	doc := New(WithCompression(false))
 	page := doc.AddPage(A4)
@@ -3261,6 +3598,241 @@ func TestClipPreservesState(t *testing.T) {
 	bigQCount := strings.Count(s, "Q\n")
 	if qCount < 1 || bigQCount < 1 {
 		t.Error("expected q/Q save/restore around clip")
+	}
+}
+
+// --- New Clipping API tests ---
+
+func TestClipRoundedRect(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipRoundedRect(20, 20, 100, 60, 10, false)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "W\n") {
+		t.Error("expected W (clip) operator")
+	}
+	// Rounded rect uses Bézier curves for corners.
+	if !strings.Contains(s, " c\n") {
+		t.Error("expected Bézier curves for rounded corners")
+	}
+}
+
+func TestClipRoundedRectOutline(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipRoundedRect(20, 20, 100, 60, 10, true)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "W\n") {
+		t.Error("expected W (clip) operator")
+	}
+	// Outline mode: stroke after clip.
+	if !strings.Contains(s, "S\n") {
+		t.Error("expected S (stroke) for outlined clip")
+	}
+}
+
+func TestClipRoundedRectExt(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// Different radii for each corner.
+	page.ClipRoundedRectExt(10, 10, 100, 80, 5, 10, 15, 20, false)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "W\n") {
+		t.Error("expected W (clip) operator")
+	}
+	// 4 corners → 4 Bézier curves.
+	if strings.Count(s, " c\n") < 4 {
+		t.Errorf("expected at least 4 Bézier curves, got %d", strings.Count(s, " c\n"))
+	}
+}
+
+func TestClipText(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 72)
+	page := doc.AddPage(A4)
+
+	page.ClipText(20, 80, "CLIP", false)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Text rendering mode 7 = clip only.
+	if !strings.Contains(s, "7 Tr\n") {
+		t.Error("expected text rendering mode 7 (clip only)")
+	}
+	if !strings.Contains(s, "(CLIP) Tj") {
+		t.Error("expected text output")
+	}
+}
+
+func TestClipTextOutline(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 72)
+	page := doc.AddPage(A4)
+
+	page.ClipText(20, 80, "CLIP", true)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Text rendering mode 5 = stroke + clip.
+	if !strings.Contains(s, "5 Tr\n") {
+		t.Error("expected text rendering mode 5 (stroke + clip)")
+	}
+}
+
+func TestClipPolygon(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipPolygon([]Point{
+		Pt(100, 20),
+		Pt(180, 150),
+		Pt(20, 150),
+	}, false)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "W\n") {
+		t.Error("expected W (clip) operator")
+	}
+	if !strings.Contains(s, "h\n") {
+		t.Error("expected h (close path) operator")
+	}
+	if !strings.Contains(s, " m\n") {
+		t.Error("expected m (moveto) operator")
+	}
+}
+
+func TestClipPolygonOutline(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipPolygon([]Point{
+		Pt(50, 50),
+		Pt(150, 50),
+		Pt(100, 150),
+	}, true)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "S\n") {
+		t.Error("expected S (stroke) for outlined polygon clip")
+	}
+}
+
+func TestClipEnd(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipRect(10, 10, 50, 50)
+	page.ClipEnd()
+
+	// After ClipEnd, drawing should work normally.
+	page.TextAt(10, 10, "After clip")
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// q/Q pairs should be balanced.
+	qCount := strings.Count(s, "q\n")
+	bigQCount := strings.Count(s, "Q\n")
+	if qCount != bigQCount {
+		t.Errorf("unbalanced q/Q: %d saves vs %d restores", qCount, bigQCount)
+	}
+}
+
+func TestClipNested(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipRect(10, 10, 100, 100)
+	page.ClipCircle(50, 50, 20)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd() // end circle clip
+	page.ClipEnd() // end rect clip
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	// Should have at least 2 W operators (nested clips).
+	if strings.Count(s, "W\n") < 2 {
+		t.Errorf("expected at least 2 clip operators, got %d", strings.Count(s, "W\n"))
+	}
+}
+
+func TestClipRectOutline(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.ClipRect(10, 10, 100, 50, true)
+	page.Rect(0, 0, 200, 200, "F")
+	page.ClipEnd()
+
+	b, err := doc.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if !strings.Contains(s, "W\n") {
+		t.Error("expected W (clip) operator")
+	}
+	if !strings.Contains(s, "S\n") {
+		t.Error("expected S (stroke) for outlined rect clip")
 	}
 }
 
@@ -4768,7 +5340,7 @@ func TestBarcode128WithText(t *testing.T) {
 	doc.SetFont("helvetica", "", 12)
 	page := doc.AddPage(A4)
 
-	page.Barcode128WithText(20, 30, 100, 30, "FOLIO-2024", 8)
+	page.Barcode128WithText(20, 30, 100, 30, "PRESSPDF-2024", 8)
 
 	b, err := doc.Bytes()
 	if err != nil {
@@ -4776,7 +5348,7 @@ func TestBarcode128WithText(t *testing.T) {
 	}
 	s := string(b)
 	// Should have the barcode bars and the text
-	if !strings.Contains(s, "FOLIO-2024") {
+	if !strings.Contains(s, "PRESSPDF-2024") {
 		t.Error("missing human-readable text under barcode")
 	}
 }
@@ -6148,14 +6720,14 @@ func TestMarkdownLink(t *testing.T) {
 	doc.SetFont("helvetica", "", 12)
 	p := doc.AddPage(A4)
 
-	p.Markdown("Visit [Folio](https://example.com) now.")
+	p.Markdown("Visit [PressPDF](https://example.com) now.")
 
 	data, err := doc.Bytes()
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := string(data)
-	if !strings.Contains(out, "(Folio)") {
+	if !strings.Contains(out, "(PressPDF)") {
 		t.Error("expected link text in output")
 	}
 	if !strings.Contains(out, "/URI (https://example.com)") {
@@ -6793,7 +7365,7 @@ func TestExternalTool_RunError(t *testing.T) {
 }
 
 func TestTempDir_CreateAndCleanup(t *testing.T) {
-	dir, cleanup, err := TempDir("folio-test-*")
+	dir, cleanup, err := TempDir("presspdf-test-*")
 	if err != nil {
 		t.Fatal(err)
 	}
