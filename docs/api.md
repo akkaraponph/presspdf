@@ -520,6 +520,33 @@ folio.ImagesToPDF("album.pdf", images,
 )
 ```
 
+### Compress PDF
+
+```go
+func CompressPDF(inputPath, outputPath string, opts ...CompressOption) error
+```
+
+Rewrites a PDF with compressed streams and optional image quality reduction. Uncompressed streams are compressed with FlateDecode, and duplicate objects are merged.
+
+Options:
+- `CompressImageQuality(quality int)` — re-encode JPEG images at given quality 1-100 (default: 0 = keep as-is)
+- `CompressDedup(on bool)` — deduplicate identical objects (default: true)
+
+```go
+// Basic compression.
+folio.CompressPDF("input.pdf", "output.pdf")
+
+// Aggressive image compression.
+folio.CompressPDF("input.pdf", "output.pdf",
+    folio.CompressImageQuality(60),
+)
+
+// Without deduplication.
+folio.CompressPDF("input.pdf", "output.pdf",
+    folio.CompressDedup(false),
+)
+```
+
 ---
 
 ## PDF-to-Image Conversion

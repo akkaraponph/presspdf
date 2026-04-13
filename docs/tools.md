@@ -194,6 +194,40 @@ err := folio.ImagesToPDF("hires.pdf", images, folio.ImageDPI(300))
 
 ---
 
+## Compress PDF
+
+Rewrite a PDF with compressed streams and optional image quality reduction. Pure Go — no external tools required.
+
+```go
+// Basic compression: FlateDecode + object deduplication.
+err := folio.CompressPDF("input.pdf", "smaller.pdf")
+
+// Re-encode JPEG images at lower quality (1-100).
+err := folio.CompressPDF("photos.pdf", "smaller.pdf",
+    folio.CompressImageQuality(60),
+)
+
+// Disable deduplication.
+err := folio.CompressPDF("input.pdf", "output.pdf",
+    folio.CompressDedup(false),
+)
+```
+
+### What it does
+
+1. **Stream compression** — uncompressed streams are compressed with FlateDecode (zlib). Already-compressed streams are kept as-is.
+2. **JPEG re-encoding** — when `CompressImageQuality` is set, JPEG images (DCTDecode) are decoded and re-encoded at the target quality. Only applied if the result is smaller than the original.
+3. **Object deduplication** — identical objects (by SHA-256 hash) are merged into a single copy, reducing redundancy in multi-page documents.
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `CompressImageQuality(q)` | 0 (off) | Re-encode JPEGs at quality 1-100 |
+| `CompressDedup(on)` | true | Merge identical objects |
+
+---
+
 ## PDF-to-Image Conversion
 
 Convert PDF pages to PNG or JPEG images. This feature requires an external renderer on PATH.

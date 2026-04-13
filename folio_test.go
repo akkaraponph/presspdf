@@ -6902,3 +6902,156 @@ func TestImagesToPDF_NonexistentImage(t *testing.T) {
 		t.Error("expected error for nonexistent image")
 	}
 }
+
+// ---- CompressPDF tests ----
+
+func TestCompressPDF_Basic(t *testing.T) {
+	// Create a simple PDF with uncompressed content.
+	doc := New()
+	doc.AddPage(A4)
+	doc.SetFont("helvetica", "", 12)
+	doc.CurrentPage().Cell(0, 10, "Hello compression test", "", "", false, 0)
+	src := filepath.Join(t.TempDir(), "input.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "compressed.pdf")
+	err := CompressPDF(src, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output is valid PDF.
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+	if !strings.Contains(string(data), "%%EOF") {
+		t.Error("missing EOF marker")
+	}
+}
+
+func TestCompressPDF_WithDedup(t *testing.T) {
+	doc := New()
+	// Add multiple identical pages — dedup should merge identical objects.
+	for i := 0; i < 5; i++ {
+		doc.AddPage(A4)
+		doc.SetFont("helvetica", "", 12)
+		doc.CurrentPage().Cell(0, 10, "Same content", "", "", false, 0)
+	}
+	src := filepath.Join(t.TempDir(), "input.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "deduped.pdf")
+	err := CompressPDF(src, out, CompressDedup(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+}
+
+func TestCompressPDF_NoDedupOption(t *testing.T) {
+	doc := New()
+	doc.AddPage(A4)
+	doc.SetFont("helvetica", "", 12)
+	doc.CurrentPage().Cell(0, 10, "No dedup test", "", "", false, 0)
+	src := filepath.Join(t.TempDir(), "input.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "nodedup.pdf")
+	err := CompressPDF(src, out, CompressDedup(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+}
+
+func TestCompressPDF_ImageQuality(t *testing.T) {
+	// Create a PDF with a JPEG image.
+	jpegs := createTestJPEGs(t, 1)
+	imgSrc := filepath.Join(t.TempDir(), "img.pdf")
+	err := ImagesToPDF(imgSrc, jpegs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(t.TempDir(), "reencoded.pdf")
+	err = CompressPDF(imgSrc, out, CompressImageQuality(50))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+}
+
+func TestCompressPDF_NonexistentInput(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.pdf")
+	err := CompressPDF("/nonexistent/input.pdf", out)
+	if err == nil {
+		t.Error("expected error for nonexistent input")
+	}
+}
+
+func TestCompressPDF_SplitThenCompress(t *testing.T) {
+	// Create a multi-page PDF, split, then compress a part.
+	doc := New()
+	for i := 0; i < 3; i++ {
+		doc.AddPage(A4)
+		doc.SetFont("helvetica", "", 14)
+		doc.CurrentPage().Cell(0, 10, fmt.Sprintf("Page %d", i+1), "", "", false, 0)
+	}
+	src := filepath.Join(t.TempDir(), "multi.pdf")
+	if err := doc.Save(src); err != nil {
+		t.Fatal(err)
+	}
+
+	parts, err := SplitPDF(src, filepath.Join(t.TempDir(), "parts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(parts))
+	}
+
+	out := filepath.Join(t.TempDir(), "compressed_part.pdf")
+	err = CompressPDF(parts[0], out)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Error("output is not a valid PDF")
+	}
+}
