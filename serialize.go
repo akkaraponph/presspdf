@@ -252,6 +252,14 @@ func (d *Document) putPages(w *pdfcore.Writer) []int {
 						w.Putf("/Dest [%d 0 R /XYZ 0 %.2f 0]", targetObj, destY)
 					}
 				}
+			} else if link.linkID > 0 && link.linkID <= len(d.intLinks) {
+				ld := d.intLinks[link.linkID-1]
+				if ld.page != nil {
+					if targetObj, ok := pageObjMap[ld.page]; ok {
+						destY := (ld.page.h - ld.y) * k
+						w.Putf("/Dest [%d 0 R /XYZ 0 %.2f 0]", targetObj, destY)
+					}
+				}
 			}
 
 			w.Put(">>")

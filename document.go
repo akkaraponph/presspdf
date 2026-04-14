@@ -112,9 +112,14 @@ type Document struct {
 	// link anchors (named destinations for internal links)
 	anchors map[string]anchorDest
 
+	// integer-based internal links (gofpdf-compatible)
+	intLinks []linkDest
+
 	// header/footer callbacks
 	headerFunc     func(*Page)
+	headerHomeMode bool // if true, reset XY to margins after header
 	footerFunc     func(*Page)
+	footerFuncLpi  func(*Page, bool) // variant with lastPage indicator
 	inHeader       bool
 	inFooter       bool
 	lastPageClosed bool // true after final page footer has been called
@@ -146,6 +151,9 @@ type Document struct {
 
 	// RTL text direction
 	isRTL bool
+
+	// catalogSort enables deterministic sorting of resource catalog keys
+	catalogSort bool
 
 	// encryption (password protection)
 	encrypted   bool
@@ -387,6 +395,16 @@ func (d *Document) PageNo() int {
 // so body content starts below it.
 func (d *Document) SetHeaderFunc(f func(*Page)) {
 	d.headerFunc = f
+	d.headerHomeMode = false
+}
+
+// SetHeaderFuncMode is like SetHeaderFunc but with a homeMode flag.
+// When homeMode is true, the cursor position is reset to the top-left
+// margin (home position) after the header callback returns. When false,
+// the cursor stays where the header left it (same as SetHeaderFunc).
+func (d *Document) SetHeaderFuncMode(f func(*Page), homeMode bool) {
+	d.headerFunc = f
+	d.headerHomeMode = homeMode
 }
 
 // SetFooterFunc sets a function that is called at the bottom of every page.
@@ -397,6 +415,16 @@ func (d *Document) SetHeaderFunc(f func(*Page)) {
 // the cursor 15 user-units above the page edge).
 func (d *Document) SetFooterFunc(f func(*Page)) {
 	d.footerFunc = f
+	d.footerFuncLpi = nil
+}
+
+// SetFooterFuncLpi is like SetFooterFunc but the callback receives an
+// additional boolean indicating whether this is the last page. This is
+// useful for conditional footer rendering (e.g., omitting "continued"
+// text on the final page).
+func (d *Document) SetFooterFuncLpi(f func(page *Page, lastPage bool)) {
+	d.footerFuncLpi = f
+	d.footerFunc = nil
 }
 
 // docState holds a snapshot of the mutable document-level visual state so
@@ -481,17 +509,28 @@ func (d *Document) callHeader(p *Page) {
 	if d.fontEntry != nil {
 		p.applyFont(d.fontEntry, d.fontSizePt)
 	}
+	// In homeMode, reset cursor to top-left margin after the header.
+	if d.headerHomeMode {
+		p.x = d.lMargin
+		p.y = d.tMargin
+	}
 }
 
 // callFooter invokes the footer callback on p, wrapped in state save/restore.
-func (d *Document) callFooter(p *Page) {
-	if d.footerFunc == nil {
+// lastPage indicates whether this is the final page (for SetFooterFuncLpi).
+func (d *Document) callFooter(p *Page, lastPage ...bool) {
+	if d.footerFunc == nil && d.footerFuncLpi == nil {
 		return
 	}
 	saved := d.saveDocState()
 	p.stream.SaveState()
 	d.inFooter = true
-	d.footerFunc(p)
+	if d.footerFuncLpi != nil {
+		isLast := len(lastPage) > 0 && lastPage[0]
+		d.footerFuncLpi(p, isLast)
+	} else {
+		d.footerFunc(p)
+	}
 	d.inFooter = false
 	p.stream.RestoreState()
 	d.restoreDocState(saved)
@@ -505,7 +544,7 @@ func (d *Document) closeDoc() {
 	if d.lastPageClosed || d.currentPage == nil {
 		return
 	}
-	d.callFooter(d.currentPage)
+	d.callFooter(d.currentPage, true)
 	d.lastPageClosed = true
 }
 
@@ -798,6 +837,17 @@ func (d *Document) SetTextRenderingMode(mode int) {
 	if d.currentPage != nil {
 		d.currentPage.stream.SetTextRendering(mode)
 	}
+}
+
+// SetCellMargin sets the cell margin (padding around text inside cells)
+// in user units.
+func (d *Document) SetCellMargin(margin float64) {
+	d.cMargin = margin
+}
+
+// GetCellMargin returns the current cell margin in user units.
+func (d *Document) GetCellMargin() float64 {
+	return d.cMargin
 }
 
 // SetLineWidth sets the line width in user units.
@@ -1111,6 +1161,46 @@ func (d *Document) AddAttachmentAnnotation(a Attachment, x, y, w, h float64) {
 		w:         w,
 		h:         h,
 	})
+}
+
+// --- Integer-based Internal Links ---
+
+// AddLink creates a new internal link placeholder and returns its ID.
+// The link's destination must be set later with SetLink.
+func (d *Document) AddLink() int {
+	d.intLinks = append(d.intLinks, linkDest{})
+	return len(d.intLinks) // 1-based
+}
+
+// SetLink sets the destination for an internal link created by AddLink.
+// linkID is the value returned by AddLink. y is the target Y position
+// in user units; use -1 for the current position. page is the 1-based
+// page number; use 0 for the current page.
+func (d *Document) SetLink(linkID int, y float64, page int) {
+	if linkID < 1 || linkID > len(d.intLinks) {
+		return
+	}
+	idx := linkID - 1
+	if y == -1 && d.currentPage != nil {
+		y = d.currentPage.y
+	}
+	if page == 0 {
+		if d.currentPage != nil {
+			d.intLinks[idx] = linkDest{page: d.currentPage, y: y}
+		}
+	} else if page >= 1 && page <= len(d.pages) {
+		d.intLinks[idx] = linkDest{page: d.pages[page-1], y: y}
+	}
+}
+
+// --- Catalog Sort ---
+
+// SetCatalogSort enables or disables deterministic sorting of internal
+// resource catalog keys. When enabled, PDF output is reproducible across
+// runs (given the same inputs and fixed creation/modification dates).
+// This is useful for testing and version control of generated PDFs.
+func (d *Document) SetCatalogSort(flag bool) {
+	d.catalogSort = flag
 }
 
 // --- RTL Text ---

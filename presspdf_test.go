@@ -10226,3 +10226,249 @@ func TestResourceDictLayerProperties(t *testing.T) {
 		t.Error("missing /Properties in resource dict")
 	}
 }
+
+// --- Tests for newly added features ---
+
+func TestSetCellMargin(t *testing.T) {
+	doc := New()
+	if doc.GetCellMargin() != 2 {
+		t.Errorf("default cell margin: got %f, want 2", doc.GetCellMargin())
+	}
+	doc.SetCellMargin(5)
+	if doc.GetCellMargin() != 5 {
+		t.Errorf("after SetCellMargin(5): got %f, want 5", doc.GetCellMargin())
+	}
+}
+
+func TestAddLinkSetLinkLink(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	// Create a link before pages exist.
+	linkID := doc.AddLink()
+	if linkID != 1 {
+		t.Errorf("AddLink returned %d, want 1", linkID)
+	}
+
+	page1 := doc.AddPage(A4)
+	page1.TextAt(20, 20, "Go to page 2")
+	page1.Link(20, 15, 60, 10, linkID)
+
+	page2 := doc.AddPage(A4)
+	page2.TextAt(20, 20, "Target")
+	doc.SetLink(linkID, 20, 2)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/Subtype /Link") {
+		t.Error("missing link annotation")
+	}
+	if !strings.Contains(s, "/Dest") {
+		t.Error("missing /Dest for internal link")
+	}
+}
+
+func TestWriteLinkID(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	linkID := doc.AddLink()
+	page1 := doc.AddPage(A4)
+	page1.WriteLinkID(6, "Click here", linkID)
+
+	page2 := doc.AddPage(A4)
+	page2.TextAt(20, 20, "Target")
+	doc.SetLink(linkID, 20, 2)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "/Subtype /Link") {
+		t.Error("missing link annotation for WriteLinkID")
+	}
+}
+
+func TestEllipseRotated(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	page.EllipseRotated(100, 100, 40, 20, 45, "D")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf.String()
+	// Should have save/restore state (q/Q) around the rotation
+	if !strings.Contains(s, " cm") {
+		t.Error("missing cm (concat matrix) operator for rotation")
+	}
+	if !strings.Contains(s, " c") {
+		t.Error("missing curve operators for ellipse")
+	}
+}
+
+func TestEllipseRotatedZero(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	// Zero rotation should behave like normal Ellipse (no extra q/Q).
+	page.EllipseRotated(100, 100, 40, 20, 0, "D")
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	// Just check it doesn't error.
+}
+
+func TestSetCatalogSort(t *testing.T) {
+	doc := New()
+	doc.SetCatalogSort(true)
+	doc.SetFont("helvetica", "", 12)
+	doc.AddPage(A4)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	// Just verify no errors; catalogSort flag is set.
+}
+
+func TestSetFooterFuncLpi(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	var footerCalls []bool
+	doc.SetFooterFuncLpi(func(p *Page, lastPage bool) {
+		footerCalls = append(footerCalls, lastPage)
+		p.SetY(-15)
+		p.Cell(0, 10, "Footer", "", "C", false, 0)
+	})
+
+	doc.AddPage(A4)
+	doc.AddPage(A4) // triggers footer on page 1
+	// Page 2 footer triggered by closeDoc (lastPage=true)
+
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(footerCalls) != 2 {
+		t.Fatalf("expected 2 footer calls, got %d", len(footerCalls))
+	}
+	if footerCalls[0] {
+		t.Error("first footer call should have lastPage=false")
+	}
+	if !footerCalls[1] {
+		t.Error("second footer call should have lastPage=true")
+	}
+}
+
+func TestSetHeaderFuncMode(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	doc.SetHeaderFuncMode(func(p *Page) {
+		p.SetY(5)
+		p.Cell(0, 10, "Header", "", "C", false, 0)
+		// Header moves cursor to Y=15
+	}, true) // homeMode = true
+
+	page := doc.AddPage(A4)
+
+	// With homeMode=true, cursor should be reset to top margin (10)
+	if page.GetY() != doc.tMargin {
+		t.Errorf("after header with homeMode, Y=%f, want %f", page.GetY(), doc.tMargin)
+	}
+}
+
+func TestSetHeaderFuncModeNoHome(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	doc.SetHeaderFuncMode(func(p *Page) {
+		p.SetY(25)
+	}, false) // homeMode = false
+
+	page := doc.AddPage(A4)
+
+	// Without homeMode, cursor stays where header left it.
+	if page.GetY() != 25 {
+		t.Errorf("after header without homeMode, Y=%f, want 25", page.GetY())
+	}
+}
+
+func TestSplitLines(t *testing.T) {
+	doc := New()
+	doc.SetFont("helvetica", "", 12)
+	page := doc.AddPage(A4)
+
+	input := []byte("Hello World Test")
+	lines := page.SplitLines(input, 30)
+	if len(lines) == 0 {
+		t.Error("SplitLines returned no lines")
+	}
+	// Verify the result is byte slices
+	for _, line := range lines {
+		if len(line) == 0 {
+			t.Error("SplitLines returned empty line")
+		}
+	}
+}
+
+func TestAddLinkMultiple(t *testing.T) {
+	doc := New()
+	id1 := doc.AddLink()
+	id2 := doc.AddLink()
+	if id1 == id2 {
+		t.Error("AddLink should return unique IDs")
+	}
+	if id1 != 1 || id2 != 2 {
+		t.Errorf("expected IDs 1,2 got %d,%d", id1, id2)
+	}
+}
+
+func TestSetLinkCurrentPage(t *testing.T) {
+	doc := New(WithCompression(false))
+	doc.SetFont("helvetica", "", 12)
+
+	linkID := doc.AddLink()
+	page := doc.AddPage(A4)
+	page.SetY(50)
+	doc.SetLink(linkID, -1, 0) // current position, current page
+
+	// Verify link was set (no error)
+	var buf bytes.Buffer
+	if _, err := doc.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetFooterFuncLpiClearsFooterFunc(t *testing.T) {
+	doc := New()
+	doc.SetFooterFunc(func(p *Page) {})
+	doc.SetFooterFuncLpi(func(p *Page, lastPage bool) {})
+	// Setting Lpi should clear the regular footer func.
+	if doc.footerFunc != nil {
+		t.Error("SetFooterFuncLpi should clear footerFunc")
+	}
+}
+
+func TestSetFooterFuncClearsLpi(t *testing.T) {
+	doc := New()
+	doc.SetFooterFuncLpi(func(p *Page, lastPage bool) {})
+	doc.SetFooterFunc(func(p *Page) {})
+	// Setting regular footer should clear Lpi.
+	if doc.footerFuncLpi != nil {
+		t.Error("SetFooterFunc should clear footerFuncLpi")
+	}
+}

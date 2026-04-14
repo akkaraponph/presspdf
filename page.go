@@ -57,6 +57,13 @@ type linkAnnotation struct {
 	x, y, w, h float64 // rect in user units
 	url         string  // non-empty for URL links
 	anchor      string  // non-empty for internal links
+	linkID      int     // >0 for integer-based internal links (set via Link)
+}
+
+// linkDest stores the target for an integer-based internal link.
+type linkDest struct {
+	page *Page   // target page (nil until SetLink is called)
+	y    float64 // Y position in user units
 }
 
 // --- Page break support ---
@@ -394,6 +401,49 @@ func (p *Page) Ellipse(x, y, rx, ry float64, style string) {
 	default:
 		p.stream.Stroke()
 	}
+}
+
+// EllipseRotated draws a rotated ellipse centered at (x, y) with horizontal
+// radius rx, vertical radius ry, and rotation degRotate (degrees, clockwise).
+// style: "D" (stroke), "F" (fill), "DF" or "FD" (fill and stroke).
+func (p *Page) EllipseRotated(x, y, rx, ry, degRotate float64, style string) {
+	if degRotate == 0 {
+		p.Ellipse(x, y, rx, ry, style)
+		return
+	}
+	p = p.active()
+	if p.doc.err != nil {
+		return
+	}
+	p.stream.SaveState()
+
+	k := p.doc.k
+	cx := state.ToPointsX(x, k)
+	cy := state.ToPointsY(y, p.h, k)
+
+	// Apply rotation around the centre point.
+	rad := -degRotate * math.Pi / 180.0
+	cosA := math.Cos(rad)
+	sinA := math.Sin(rad)
+	e := cx*(1-cosA) + cy*sinA
+	f := cy*(1-cosA) - cx*sinA
+	p.stream.ConcatMatrix(cosA, sinA, -sinA, cosA, e, f)
+
+	// Draw the unrotated ellipse at the centre.
+	rxPt := rx * k
+	ryPt := ry * k
+	const kappa = 0.5522847498
+	kx := rxPt * kappa
+	ky := ryPt * kappa
+
+	p.stream.MoveTo(cx+rxPt, cy)
+	p.stream.CurveTo(cx+rxPt, cy+ky, cx+kx, cy+ryPt, cx, cy+ryPt)
+	p.stream.CurveTo(cx-kx, cy+ryPt, cx-rxPt, cy+ky, cx-rxPt, cy)
+	p.stream.CurveTo(cx-rxPt, cy-ky, cx-kx, cy-ryPt, cx, cy-ryPt)
+	p.stream.CurveTo(cx+kx, cy-ryPt, cx+rxPt, cy-ky, cx+rxPt, cy)
+
+	p.paintStyle(style)
+	p.stream.RestoreState()
 }
 
 // Arc draws an elliptical arc centered at (x, y) with horizontal radius rx
@@ -1743,6 +1793,18 @@ func (p *Page) runeWidth1000(fe *resources.FontEntry, r rune) float64 {
 	return 0
 }
 
+// SplitLines splits text (as bytes) into lines that fit within the given
+// width in user units. This is the byte-based counterpart of SplitText,
+// provided for compatibility with gofpdf.
+func (p *Page) SplitLines(txt []byte, w float64) [][]byte {
+	lines := p.SplitText(string(txt), w)
+	result := make([][]byte, len(lines))
+	for i, line := range lines {
+		result[i] = []byte(line)
+	}
+	return result
+}
+
 // isCJK reports whether a rune is in a CJK ideograph range where line
 // breaks are allowed between any two characters.
 func isCJK(r rune) bool {
@@ -2195,6 +2257,37 @@ func (p *Page) LinkURL(x, y, w, h float64, url string) {
 func (p *Page) LinkAnchor(x, y, w, h float64, anchor string) {
 	p = p.active()
 	p.links = append(p.links, linkAnnotation{x: x, y: y, w: w, h: h, anchor: anchor})
+}
+
+// Link creates a clickable area that navigates to an integer-based internal
+// link destination (set by Document.SetLink). linkID is the value returned
+// by Document.AddLink.
+func (p *Page) Link(x, y, w, h float64, linkID int) {
+	p = p.active()
+	p.links = append(p.links, linkAnnotation{x: x, y: y, w: w, h: h, linkID: linkID})
+}
+
+// WriteLinkID writes text that navigates to an integer-based internal link.
+// h is the line height. linkID is the value returned by Document.AddLink.
+func (p *Page) WriteLinkID(h float64, text string, linkID int) {
+	p = p.active()
+	d := p.doc
+	if d.err != nil {
+		return
+	}
+	startX := p.GetX()
+	startY := p.GetY()
+	p.Write(h, text)
+	p = p.active()
+	endX := p.GetX()
+
+	sw := endX - startX
+	if sw > 0 {
+		p.links = append(p.links, linkAnnotation{
+			x: startX, y: startY, w: sw, h: h,
+			linkID: linkID,
+		})
+	}
 }
 
 // AddAnchor registers the current cursor position as a named destination.
