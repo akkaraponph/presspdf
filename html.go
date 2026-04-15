@@ -62,6 +62,9 @@ func (p *Page) HTML(html string, opts ...HTMLOption) {
 	// Unwrap document structure: skip <!doctype>, <html>, <head>, <body>.
 	nodes = unwrapDocument(nodes)
 
+	// Set parent pointers for descendant selector matching.
+	setParentPointers(nodes, nil)
+
 	// Extract <style> blocks from the full tree before rendering.
 	r.extractStyles(nodes)
 
@@ -74,6 +77,7 @@ type htmlNode struct {
 	attrs    map[string]string
 	children []*htmlNode
 	text     string // non-empty for text nodes
+	parent   *htmlNode
 }
 
 // htmlRenderer holds rendering state.
@@ -82,6 +86,7 @@ type htmlRenderer struct {
 	lineHeight   float64
 	contentWidth float64 // available width for content
 	listDepth    int     // nesting depth for lists
+	inheritAlign string  // inherited text-align for child elements
 
 	// stylesheet parsed from <style> blocks
 	stylesheet map[string]cssStyle // selector -> style
@@ -124,6 +129,14 @@ func unwrapDocument(nodes []*htmlNode) []*htmlNode {
 		}
 	}
 	return result
+}
+
+// setParentPointers recursively sets parent references on all nodes.
+func setParentPointers(nodes []*htmlNode, parent *htmlNode) {
+	for _, n := range nodes {
+		n.parent = parent
+		setParentPointers(n.children, n)
+	}
 }
 
 // extractStyles recursively finds and processes all <style> nodes in the tree.
@@ -480,13 +493,72 @@ func (r *htmlRenderer) resolveStyle(n *htmlNode) cssStyle {
 				merged = mergeCSS(merged, s)
 			}
 		}
+
+		// Match descendant selectors (e.g. ".company-info h1").
+		for sel, s := range r.stylesheet {
+			parts := strings.Fields(sel)
+			if len(parts) < 2 {
+				continue
+			}
+			// Check if the node matches the last part of the selector.
+			last := parts[len(parts)-1]
+			if !nodeMatchesSelector(n, last) {
+				continue
+			}
+			// Walk up ancestors to match remaining parts right-to-left.
+			if matchDescendantSelector(n.parent, parts[:len(parts)-1]) {
+				merged = mergeCSS(merged, s)
+			}
+		}
 	}
 
 	// Inline style overrides.
 	inline := parseInlineStyle(n.attrs["style"])
 	merged = mergeCSS(merged, inline)
 
+	// Apply inherited text-align if not explicitly set.
+	if merged.textAlign == "" && r.inheritAlign != "" {
+		merged.textAlign = r.inheritAlign
+	}
+
 	return merged
+}
+
+// nodeMatchesSelector checks if a node matches a simple CSS selector
+// (tag name, .class, or #id).
+func nodeMatchesSelector(n *htmlNode, sel string) bool {
+	if n == nil || n.tag == "" {
+		return false
+	}
+	if strings.HasPrefix(sel, ".") {
+		cls := sel[1:]
+		for _, c := range strings.Fields(n.attrs["class"]) {
+			if c == cls {
+				return true
+			}
+		}
+		return false
+	}
+	if strings.HasPrefix(sel, "#") {
+		return n.attrs["id"] == sel[1:]
+	}
+	return n.tag == sel
+}
+
+// matchDescendantSelector walks up the ancestor chain to match remaining
+// selector parts. Each part must match some ancestor (not necessarily direct parent).
+func matchDescendantSelector(ancestor *htmlNode, parts []string) bool {
+	if len(parts) == 0 {
+		return true
+	}
+	for cur := ancestor; cur != nil; cur = cur.parent {
+		if nodeMatchesSelector(cur, parts[len(parts)-1]) {
+			if matchDescendantSelector(cur.parent, parts[:len(parts)-1]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // mergeCSS merges src into dst; non-zero values in src override dst.
@@ -526,6 +598,9 @@ func mergeCSS(dst, src cssStyle) cssStyle {
 	if src.marginBottom != 0 {
 		dst.marginBottom = src.marginBottom
 	}
+	if src.paddingTop != 0 {
+		dst.paddingTop = src.paddingTop
+	}
 	if src.paddingLeft != 0 {
 		dst.paddingLeft = src.paddingLeft
 	}
@@ -534,6 +609,11 @@ func mergeCSS(dst, src cssStyle) cssStyle {
 	}
 	if src.textTransform != "" {
 		dst.textTransform = src.textTransform
+	}
+	if src.borderTop {
+		dst.borderTop = true
+		dst.borderTopWidth = src.borderTopWidth
+		dst.borderTopColor = src.borderTopColor
 	}
 	if src.borderBottom {
 		dst.borderBottom = true
@@ -545,6 +625,15 @@ func mergeCSS(dst, src cssStyle) cssStyle {
 	}
 	if src.justifyContent != "" {
 		dst.justifyContent = src.justifyContent
+	}
+	if src.float_ != "" {
+		dst.float_ = src.float_
+	}
+	if src.widthPct != 0 {
+		dst.widthPct = src.widthPct
+	}
+	if src.clear_ != "" {
+		dst.clear_ = src.clear_
 	}
 	return dst
 }
@@ -874,17 +963,47 @@ func (r *htmlRenderer) renderDiv(n *htmlNode, cs cssStyle) {
 	p := r.page.active()
 	doc := p.doc
 
+	// Handle clear property — in our simple model this is a no-op since we
+	// don't have true float flow, but it prevents extra blank space.
+	if cs.clear_ == "both" || cs.clear_ == "left" || cs.clear_ == "right" {
+		// Nothing to clear in our rendering model; just continue.
+		return
+	}
+
 	if cs.marginTop > 0 {
 		p.y += cs.marginTop
+	}
+
+	// Render border-top if set.
+	if cs.borderTop {
+		p = r.page.active()
+		savedDraw := doc.drawColor
+		doc.SetDrawColor(cs.borderTopColor[0], cs.borderTopColor[1], cs.borderTopColor[2])
+		savedLW := doc.lineWidth
+		doc.SetLineWidth(cs.borderTopWidth / doc.k)
+		p.Line(doc.lMargin, p.y, p.w-doc.rMargin, p.y)
+		doc.drawColor = savedDraw
+		doc.SetLineWidth(savedLW)
+		p.y += 1
+	}
+
+	if cs.paddingTop > 0 {
+		p.y += cs.paddingTop
 	}
 
 	if cs.hasBgColor {
 		r.drawBlockBackground(n, cs)
 	}
 
+	// Handle float:right with a percentage width.
+	if cs.float_ == "right" && cs.widthPct > 0 {
+		r.renderFloatRight(n, cs)
+		return
+	}
+
 	if cs.display == "flex" && cs.justifyContent == "space-between" {
 		r.renderFlexSpaceBetween(n, cs)
-	} else if cs.textAlign == "center" || cs.textAlign == "right" || cs.textAlign == "justify" {
+	} else if (cs.textAlign == "center" || cs.textAlign == "right" || cs.textAlign == "justify") && !hasBlockChildren(n) {
 		r.renderAlignedBlock(n, cs)
 	} else {
 		r.renderNodes(n.children)
@@ -919,8 +1038,53 @@ func (r *htmlRenderer) renderDiv(n *htmlNode, cs cssStyle) {
 	}
 }
 
+// hasBlockChildren returns true if the node has any block-level element children.
+// When true, the div should render children individually rather than flattening
+// them into a single aligned text block.
+func hasBlockChildren(n *htmlNode) bool {
+	for _, child := range n.children {
+		switch child.tag {
+		case "div", "p", "h1", "h2", "h3", "h4", "h5", "h6",
+			"table", "ul", "ol", "blockquote", "pre", "hr", "center":
+			return true
+		}
+	}
+	return false
+}
+
+// renderFloatRight renders a div positioned at the right side of the page
+// with a percentage-based width.
+func (r *htmlRenderer) renderFloatRight(n *htmlNode, cs cssStyle) {
+	p := r.page.active()
+	doc := p.doc
+
+	totalW := r.contentWidth
+	divW := totalW * cs.widthPct / 100
+	savedLMargin := doc.lMargin
+	savedCW := r.contentWidth
+
+	// Position in the right portion.
+	doc.lMargin = p.w - doc.rMargin - divW
+	r.contentWidth = divW
+	p = r.page.active()
+	p.x = doc.lMargin
+
+	r.renderNodes(n.children)
+
+	// Restore.
+	doc.lMargin = savedLMargin
+	r.contentWidth = savedCW
+	p = r.page.active()
+	p.x = doc.lMargin
+
+	if cs.marginBottom > 0 {
+		p.y += cs.marginBottom
+	}
+}
+
 // renderFlexSpaceBetween renders a flex container with justify-content: space-between.
-// It places the first child left-aligned and the last child right-aligned on the same line.
+// With two children it places them in left and right columns on the same row.
+// Each child is rendered as a full block (headings, paragraphs, line breaks all work).
 func (r *htmlRenderer) renderFlexSpaceBetween(n *htmlNode, cs cssStyle) {
 	p := r.page.active()
 	doc := p.doc
@@ -938,42 +1102,108 @@ func (r *htmlRenderer) renderFlexSpaceBetween(n *htmlNode, cs cssStyle) {
 		return
 	}
 
-	startY := p.y
-
-	if len(items) >= 2 {
-		leftText := extractText(items[0])
-		rightText := extractText(items[len(items)-1])
-
-		// Render left text with its style.
-		childCS := r.resolveStyle(items[0])
-		ss := r.saveStyle()
-		r.applyCSS(childCS)
+	if len(items) < 2 {
+		r.renderNodes(items[0].children)
 		p = r.page.active()
 		p.x = doc.lMargin
-		p.y = startY
-		leftW := p.GetStringWidth(leftText)
-		p.Cell(leftW, r.lineHeight, leftText, "", "L", false, 0)
-		r.restoreSnapshot(ss)
-
-		// Render right text with its style, right-aligned.
-		childCS = r.resolveStyle(items[len(items)-1])
-		ss = r.saveStyle()
-		r.applyCSS(childCS)
-		p = r.page.active()
-		rightW := p.GetStringWidth(rightText)
-		p.x = p.w - doc.rMargin - rightW
-		p.y = startY
-		p.Cell(rightW, r.lineHeight, rightText, "", "R", false, 0)
-		r.restoreSnapshot(ss)
-	} else {
-		// Single item: just render it.
-		r.renderNodes(items[0].children)
+		return
 	}
 
+	// Check if children are inline (span, b, i, etc) or block-level.
+	if !hasBlockChildren(n) {
+		// Simple inline case: use Cell for left and right text on one line.
+		r.renderFlexInline(items, doc)
+		return
+	}
+
+	// Block children: render in separate columns.
+	startY := p.y
+	savedLMargin := doc.lMargin
+	savedRMargin := doc.rMargin
+	savedCW := r.contentWidth
+	halfW := r.contentWidth / 2
+
+	// --- Render left child in left column ---
+	doc.rMargin = savedRMargin + halfW
+	r.contentWidth = halfW
+	p = r.page.active()
+	p.x = savedLMargin
+	p.y = startY
+	r.renderElement(items[0])
+	p = r.page.active()
+	leftEndY := p.y
+
+	// --- Render right child in right column, right-aligned ---
+	doc.lMargin = savedLMargin + halfW
+	doc.rMargin = savedRMargin
+	r.contentWidth = halfW
+	p = r.page.active()
+	p.x = doc.lMargin
+	p.y = startY
+	// Set inherited alignment so all descendants render right-aligned.
+	savedAlign := r.inheritAlign
+	r.inheritAlign = "right"
+	r.renderElement(items[len(items)-1])
+	r.inheritAlign = savedAlign
+	p = r.page.active()
+	rightEndY := p.y
+
+	// Restore margins.
+	doc.lMargin = savedLMargin
+	doc.rMargin = savedRMargin
+	r.contentWidth = savedCW
+
+	// Advance Y to the tallest column, ensuring at least one lineHeight.
+	maxY := leftEndY
+	if rightEndY > maxY {
+		maxY = rightEndY
+	}
+	if maxY <= startY {
+		maxY = startY + r.lineHeight
+	}
+	p = r.page.active()
+	p.x = doc.lMargin
+	p.y = maxY
+}
+
+// renderFlexInline renders inline flex children with the first left-aligned
+// and the last right-aligned on the same line using Cell.
+func (r *htmlRenderer) renderFlexInline(items []*htmlNode, doc *Document) {
+	p := r.page.active()
+	startY := p.y
+
+	leftText := extractText(items[0])
+	rightText := extractText(items[len(items)-1])
+
+	// Render left text with its style.
+	childCS := r.resolveStyle(items[0])
+	ss := r.saveStyle()
+	r.applyCSS(childCS)
+	p = r.page.active()
+	p.x = doc.lMargin
+	p.y = startY
+	leftW := p.GetStringWidth(leftText)
+	p.Cell(leftW, r.lineHeight, leftText, "", "L", false, 0)
+	r.restoreSnapshot(ss)
+
+	// Render right text with its style, right-aligned.
+	childCS = r.resolveStyle(items[len(items)-1])
+	ss = r.saveStyle()
+	r.applyCSS(childCS)
+	p = r.page.active()
+	rightW := p.GetStringWidth(rightText)
+	p.x = p.w - doc.rMargin - rightW
+	p.y = startY
+	p.Cell(rightW, r.lineHeight, rightText, "", "R", false, 0)
+	r.restoreSnapshot(ss)
+
+	// Advance past the line.
 	p = r.page.active()
 	p.x = doc.lMargin
 	p.y = startY + r.lineHeight
 }
+
+
 
 // renderTextTransformed renders children with text-transform applied.
 func (r *htmlRenderer) renderTextTransformed(n *htmlNode, cs cssStyle) {
@@ -1370,13 +1600,9 @@ func (r *htmlRenderer) renderTable(n *htmlNode) {
 		}
 	}
 
-	// Calculate equal column widths.
+	// Auto-size columns based on content width.
 	availW := r.contentWidth
-	colW := availW / float64(maxCols)
-	widths := make([]float64, maxCols)
-	for i := range widths {
-		widths[i] = colW
-	}
+	widths := r.autoSizeColumns(p, rows, maxCols, availW)
 
 	tbl := NewTable(doc, p)
 	tbl.SetWidths(widths...)
@@ -1406,6 +1632,44 @@ func (r *htmlRenderer) collectTableRow(tr *htmlNode) ([]string, bool) {
 		}
 	}
 	return cells, header
+}
+
+// autoSizeColumns calculates column widths based on content.
+// It measures the widest cell in each column, then distributes remaining
+// space proportionally to columns that need more room.
+func (r *htmlRenderer) autoSizeColumns(p *Page, rows [][]string, maxCols int, availW float64) []float64 {
+	// Measure the natural width of each column's widest cell.
+	natural := make([]float64, maxCols)
+	padding := 4.0 // cell padding in mm
+	for _, row := range rows {
+		for j := 0; j < maxCols && j < len(row); j++ {
+			w := p.GetStringWidth(row[j]) + padding
+			if w > natural[j] {
+				natural[j] = w
+			}
+		}
+	}
+
+	// Sum of natural widths.
+	totalNatural := 0.0
+	for _, w := range natural {
+		totalNatural += w
+	}
+
+	widths := make([]float64, maxCols)
+	if totalNatural <= availW {
+		// All columns fit: distribute extra space proportionally.
+		extra := availW - totalNatural
+		for i, w := range natural {
+			widths[i] = w + extra*w/totalNatural
+		}
+	} else {
+		// Columns overflow: scale down proportionally.
+		for i, w := range natural {
+			widths[i] = w * availW / totalNatural
+		}
+	}
+	return widths
 }
 
 // --- Block background helper ---
@@ -1458,6 +1722,9 @@ func extractText(n *htmlNode) string {
 	if n.text != "" {
 		return collapseWhitespace(n.text)
 	}
+	if n.tag == "br" {
+		return "\n"
+	}
 	var sb strings.Builder
 	for _, child := range n.children {
 		sb.WriteString(extractText(child))
@@ -1495,13 +1762,20 @@ type cssStyle struct {
 	hasBgColor        bool
 	marginTop         float64
 	marginBottom      float64
+	paddingTop        float64
 	paddingLeft       float64
 	paddingBottom     float64
+	borderTop         bool
+	borderTopWidth    float64 // in points
+	borderTopColor    [3]int
 	borderBottom      bool
 	borderBottomWidth float64 // in points
 	borderBottomColor [3]int
 	display           string // "flex", "block", "inline-block"
 	justifyContent    string // "space-between", "center", etc.
+	float_            string // "right", "left", "none"
+	widthPct          float64 // width as percentage (0-100)
+	clear_            string // "both", "left", "right", "none"
 }
 
 // parseInlineStyle parses a CSS style attribute string into a cssStyle.
@@ -1561,6 +1835,10 @@ func parseInlineStyle(s string) cssStyle {
 			if mb := parseCSSLength(val); mb > 0 {
 				cs.marginBottom = mb
 			}
+		case "padding-top":
+			if pt := parseCSSLength(val); pt > 0 {
+				cs.paddingTop = pt
+			}
 		case "padding-left":
 			if pl := parseCSSLength(val); pl > 0 {
 				cs.paddingLeft = pl
@@ -1610,6 +1888,38 @@ func parseInlineStyle(s string) cssStyle {
 			cs.display = strings.ToLower(val)
 		case "justify-content":
 			cs.justifyContent = strings.ToLower(val)
+		case "float":
+			cs.float_ = strings.ToLower(val)
+		case "width":
+			v := strings.TrimSpace(strings.ToLower(val))
+			if strings.HasSuffix(v, "%") {
+				if pct, err := strconv.ParseFloat(strings.TrimSuffix(v, "%"), 64); err == nil {
+					cs.widthPct = pct
+				}
+			}
+		case "clear":
+			cs.clear_ = strings.ToLower(val)
+		case "border-top":
+			cs.borderTop = true
+			cs.borderTopWidth = 0.5
+			cs.borderTopColor = [3]int{0, 0, 0}
+			bparts := strings.Fields(val)
+			for _, bp := range bparts {
+				bp = strings.ToLower(bp)
+				if bp == "solid" || bp == "dashed" || bp == "dotted" || bp == "none" {
+					if bp == "none" {
+						cs.borderTop = false
+					}
+					continue
+				}
+				if w := parseCSSLength(bp); w > 0 {
+					cs.borderTopWidth = w * 2.83465 // mm to points
+					continue
+				}
+				if r, g, b, ok := parseCSSColor(bp); ok {
+					cs.borderTopColor = [3]int{r, g, b}
+				}
+			}
 		case "border-bottom":
 			cs.borderBottom = true
 			cs.borderBottomWidth = 0.5 // default
